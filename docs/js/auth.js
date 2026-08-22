@@ -19,7 +19,7 @@ if (window.TRACKZ_STATIC) {
       const href = a.getAttribute('href') || '';
       const provider = href.includes('google') ? 'google' : href.includes('proton') ? 'proton' : 'github';
       staticLogin(provider);
-      location.href = page('dashboard.html');
+      location.href = page('timer.html');
     });
   });
 }

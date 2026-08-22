@@ -1,1 +1,47 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Projects — Trackz</title><link rel="stylesheet" href="css/trackz.css"></head><body class="app"><aside><a class="brand" href="dashboard.html">trackz<span>.</span></a><nav class="side"><a href="dashboard.html">▦ <span>Overview</span></a><a href="timer.html">◷ <span>Timer</span></a><a class="active" href="projects.html">□ <span>Projects</span></a></nav><div class="side-bottom"><a href="#" id="logout">↪ <span>Log out</span></a></div></aside><main class="content"><header class="top"><div><div class="eyebrow">WORKSPACES</div><h1>Projects</h1></div><button id="newProject" class="btn">+ New project</button></header><div id="projectGrid" class="project-grid"></div></main><div id="modal" class="modal hidden"><div class="modal-card"><button class="close" id="close">×</button><h2>New project</h2><form id="projectForm"><label>Name<input name="name" required placeholder="Website redesign"></label><label>Client<input name="client" placeholder="Acme Inc."></label><label>Description<textarea name="description" placeholder="What is this project about?"></textarea></label><label>Color<input name="color" type="color" value="#6d5dfc"></label><button class="btn big">Create project</button></form></div></div><script src="js/app.js"></script><script src="js/projects.js"></script></body></html>
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Projects — Trackz</title>
+  <link rel="stylesheet" href="css/trackz.css">
+</head>
+<body class="app">
+  <aside>
+    <a class="brand" href="timer.html">trackz<span>.</span></a>
+    <nav class="side">
+      <a href="timer.html">▶ <span>Timer</span></a>
+      <a href="schedule.html">▦ <span>Schedule</span></a>
+      <a class="active" href="projects.html">□ <span>Projects</span></a>
+      <a href="dashboard.html">▤ <span>Reports</span></a>
+    </nav>
+    <div class="side-bottom"><a href="#" id="logout">↪ <span>Log out</span></a></div>
+  </aside>
+  <main class="content">
+    <div class="trackbar" id="trackbar">
+      <input id="barDesc" placeholder="What are you working on?" autocomplete="off">
+      <div class="project-pick">
+        <button type="button" class="project-btn" id="projectBtn">+ Project</button>
+        <div class="project-menu hidden" id="projectMenu"></div>
+      </div>
+      <time id="barClock">0:00:00</time>
+      <button type="button" class="play" id="barToggle" title="Start timer">▶</button>
+    </div>
+    <header class="top slim">
+      <div>
+        <div class="eyebrow">PROJECTS</div>
+        <h1>Where time goes</h1>
+      </div>
+    </header>
+    <form class="quick-add" id="quickAdd">
+      <input name="name" required placeholder="New project name">
+      <input name="client" placeholder="Client (optional)">
+      <div class="swatches" id="quickColors"></div>
+      <button class="btn" type="submit">Create project</button>
+    </form>
+    <div id="projectGrid" class="project-grid"></div>
+  </main>
+  <script src="js/app.js"></script>
+  <script src="js/projects.js"></script>
+</body>
+</html>
