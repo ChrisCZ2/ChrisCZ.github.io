@@ -41,7 +41,16 @@
             <strong id="rangeLabel">This week</strong>
             <button type="button" class="btn ghost" id="nextRange">→</button>
             <button type="button" class="btn ghost" id="todayRange">Today</button>
+            <button type="button" class="ghost-ico" id="settingsBtn" title="Timer settings">⚙</button>
+            <button type="button" class="ghost-ico" id="showInsights" title="Insights">▤</button>
           </div>
+        </div>
+        <div id="bulkBar" class="bulk-bar hidden">
+          <span id="bulkCount">0 selected</span>
+          <button type="button" id="bulkBillable">Billable</button>
+          <button type="button" id="bulkUnbillable">Not billable</button>
+          <button type="button" id="bulkDelete" class="danger">Delete</button>
+          <button type="button" id="bulkClear">Clear</button>
         </div>
         <div id="viewRoot"></div>
       </section>
@@ -71,6 +80,67 @@
         </div>
       </aside>
     </div>
+  </div>
+  <div id="editor" class="modal hidden">
+    <div class="modal-card editor">
+      <button class="close" id="editorClose">×</button>
+      <h2>Edit time entry</h2>
+      <form id="editorForm">
+        <input type="hidden" name="id">
+        <label>Description<input name="description" placeholder="What did you work on?"></label>
+        <label>Project<select name="projectId"></select></label>
+        <label>Tags<input name="tags" placeholder="meeting, deep-work"></label>
+        <label class="check"><input type="checkbox" name="billable"> Billable</label>
+        <div class="split">
+          <label>Start<input name="startedAt" type="datetime-local"></label>
+          <label>End<input name="endedAt" type="datetime-local"></label>
+        </div>
+        <label>Duration<input name="duration" placeholder="1:00:00"></label>
+        <div class="editor-actions">
+          <button class="btn" type="submit">Save</button>
+          <button class="btn ghost" type="button" data-act="continue">Continue</button>
+          <button class="btn ghost" type="button" data-act="duplicate">Duplicate</button>
+          <button class="btn ghost" type="button" data-act="split">Split</button>
+          <button class="btn ghost" type="button" data-act="favorite">Favorite</button>
+          <button class="btn ghost" type="button" data-act="project">Project</button>
+          <button class="btn ghost danger" type="button" data-act="delete">Delete</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <div id="settings" class="modal hidden">
+    <div class="modal-card">
+      <button class="close" id="settingsClose">×</button>
+      <h2>Timer settings</h2>
+      <label class="check"><input type="checkbox" id="setGroup"> Group similar time entries</label>
+      <label class="check"><input type="checkbox" id="setShortcuts"> Keyboard shortcuts</label>
+      <div class="split">
+        <label>Calendar start<input id="setCalStart" type="number" min="0" max="12"></label>
+        <label>Calendar end<input id="setCalEnd" type="number" min="13" max="24"></label>
+      </div>
+      <p class="hint">Press Shift + ? for the shortcut list.</p>
+    </div>
+  </div>
+  <div id="shortcuts" class="modal hidden">
+    <div class="modal-card">
+      <button class="close" id="shortcutsClose">×</button>
+      <h2>Keyboard shortcuts</h2>
+      <ul class="keys">
+        <li><kbd>N</kbd> Start a new timer</li>
+        <li><kbd>S</kbd> Stop the running timer</li>
+        <li><kbd>M</kbd> Switch to manual mode</li>
+        <li><kbd>C</kbd> Continue the last entry</li>
+        <li><kbd>T</kbd> Jump to today</li>
+        <li><kbd>1–9</kbd> Start a favorite</li>
+        <li><kbd>Shift</kbd> + <kbd>?</kbd> This list</li>
+      </ul>
+    </div>
+  </div>
+  <div id="focus" class="focus hidden">
+    <button type="button" class="close" id="focusClose">×</button>
+    <p id="focusDesc">Tracking</p>
+    <div id="focusClock">0:00:00</div>
+    <button type="button" class="btn big" id="focusStop">Stop timer</button>
   </div>
   <script src="js/app.js"></script>
   <script src="js/timer.js"></script>

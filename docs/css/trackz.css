@@ -120,3 +120,40 @@
 .sheet th:first-child,.sheet td:first-child{text-align:left}
 .menu-item small{display:block;color:#999;font-size:11px;margin-left:17px}
 @media(max-width:980px){.insights{display:none}.te-range{display:none}}
+.desc-wrap{position:relative;flex:1;min-width:160px}
+.desc-wrap input{width:100%}
+.suggest{position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 30px #0002;z-index:9;padding:6px}
+.suggest button{display:block;width:100%;border:0;background:transparent;text-align:left;padding:8px 10px;border-radius:8px;cursor:pointer}
+.suggest button:hover{background:#f3f1eb}
+.check{display:flex;align-items:center;gap:8px;font-weight:600}
+.check input{width:auto}
+.te .pick{width:auto}
+.chip-btn{border:0;background:transparent;padding:0;cursor:pointer}
+.te-dur{width:78px;border:0;background:transparent;font:13px 'DM Mono';text-align:right}
+.te-range{border:0;background:transparent;color:#999;font:12px 'DM Mono';cursor:pointer}
+.more{position:relative}
+.more-menu{position:absolute;right:0;top:32px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 30px #0002;min-width:170px;z-index:8;padding:6px}
+.more-menu button{display:block;width:100%;border:0;background:transparent;text-align:left;padding:8px 10px;cursor:pointer;border-radius:8px}
+.more-menu button:hover{background:#f3f1eb}
+.te.group.open .group-kids{display:block}
+.bulk-bar{display:flex;gap:10px;align-items:center;background:#171717;color:#fff;border-radius:10px;padding:10px 14px;margin-bottom:12px}
+.bulk-bar button{border:0;background:#fff;color:#171717;border-radius:8px;padding:6px 10px;cursor:pointer;font:600 12px inherit}
+.bulk-bar .danger{background:#e45656;color:#fff}
+.editor-actions{display:flex;flex-wrap:wrap;gap:8px}
+.keys{padding-left:0;list-style:none}
+.keys li{display:flex;gap:10px;align-items:center;margin:10px 0}
+kbd{background:#f3f1eb;border:1px solid var(--line);border-radius:6px;padding:2px 7px;font:12px 'DM Mono'}
+#toast{position:fixed;right:20px;bottom:20px;background:#171717;color:#fff;padding:12px 16px;border-radius:12px;display:none;gap:12px;align-items:center;z-index:20}
+#toast.show{display:flex}
+#toast button{border:0;background:#fff;color:#171717;border-radius:8px;padding:6px 10px;cursor:pointer;font:600 12px inherit}
+.focus{position:fixed;inset:0;background:#171717ee;color:#fff;display:grid;place-items:center;z-index:30;text-align:center}
+.focus.hidden{display:none}
+.focus .close{position:absolute;right:24px;top:18px;color:#fff}
+#focusClock{font:500 72px 'DM Mono';margin:10px 0 24px}
+.cal-slot.half{height:22px}
+.cal-block .resize{position:absolute;left:0;right:0;bottom:0;height:8px;cursor:ns-resize}
+.cal-daytotals{display:grid;grid-template-columns:56px repeat(7,1fr);gap:6px;margin-bottom:8px;font:12px 'DM Mono';color:var(--muted);text-align:center}
+.cal-daytotals::before{content:''}
+.sheet-cell{width:100%;border:0;background:transparent;text-align:center;font:13px 'DM Mono'}
+.sheet .totals{font-weight:700;background:#f7f6f2}
+.muted{color:#bbb}
