@@ -9,24 +9,22 @@
 <body class="app">
   <aside>
     <a class="brand" href="timer.html">trackz<span>.</span></a>
-    <nav class="side">
-      <a href="timer.html">▶ <span>Timer</span></a>
-      <a href="schedule.html">▦ <span>Schedule</span></a>
-      <a href="projects.html">□ <span>Projects</span></a>
-      <a class="active" href="dashboard.html">▤ <span>Reports</span></a>
+    <p class="nav-label">Analyze</p>
+    <nav class="side tight">
+      <a href="timer.html">Timer</a>
+      <a href="timer.html?view=calendar">Calendar</a>
+      <a class="active" href="dashboard.html">Reports</a>
     </nav>
-    <div class="side-bottom"><a href="#" id="logout">↪ <span>Log out</span></a></div>
+    <p class="nav-label">Manage</p>
+    <nav class="side tight">
+      <a href="projects.html">Projects</a>
+      <a href="clients.html">Clients</a>
+      <a href="tags.html">Tags</a>
+    </nav>
+    <div class="side-bottom"><a href="#" id="logout">Log out</a></div>
   </aside>
   <main class="content">
-    <div class="trackbar" id="trackbar">
-      <input id="barDesc" placeholder="What are you working on?" autocomplete="off">
-      <div class="project-pick">
-        <button type="button" class="project-btn" id="projectBtn">+ Project</button>
-        <div class="project-menu hidden" id="projectMenu"></div>
-      </div>
-      <time id="barClock">0:00:00</time>
-      <button type="button" class="play" id="barToggle" title="Start timer">▶</button>
-    </div>
+    <div id="trackbar"></div>
     <header class="top slim">
       <div>
         <div class="eyebrow">REPORTS</div>

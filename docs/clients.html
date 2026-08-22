@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Clients — Trackz</title>
+  <link rel="stylesheet" href="css/trackz.css">
+</head>
+<body class="app">
+  <aside>
+    <a class="brand" href="timer.html">trackz<span>.</span></a>
+    <p class="nav-label">Analyze</p>
+    <nav class="side tight">
+      <a href="timer.html">Timer</a>
+      <a href="timer.html?view=calendar">Calendar</a>
+      <a href="dashboard.html">Reports</a>
+    </nav>
+    <p class="nav-label">Manage</p>
+    <nav class="side tight">
+      <a href="projects.html">Projects</a>
+      <a class="active" href="clients.html">Clients</a>
+      <a href="tags.html">Tags</a>
+    </nav>
+    <div class="side-bottom"><a href="#" id="logout">Log out</a></div>
+  </aside>
+  <main class="content">
+    <div id="trackbar"></div>
+    <header class="top slim"><div><div class="eyebrow">MANAGE</div><h1>Clients</h1></div></header>
+    <form class="quick-add" id="addClient">
+      <input name="name" required placeholder="Client name">
+      <button class="btn" type="submit">Add client</button>
+    </form>
+    <div id="list" class="panel"></div>
+  </main>
+  <script src="js/app.js"></script>
+  <script>
+    (async () => {
+      await requireUser();
+      await mountTrackbar();
+      async function load() {
+        const [clients, projects] = await Promise.all([api('/api/clients'), api('/api/projects')]);
+        const names = [...clients.map(c => c.name), ...projects.map(p => p.client).filter(Boolean)];
+        const unique = [...new Set(names)];
+        document.querySelector('#list').innerHTML = unique.length
+          ? unique.map(n => `<div class="row"><main><b>${esc(n)}</b><small>${projects.filter(p => p.client === n).length} projects</small></main></div>`).join('')
+          : '<p class="empty-copy">Add a client, then attach it when you create a project.</p>';
+      }
+      document.querySelector('#addClient').onsubmit = async e => {
+        e.preventDefault();
+        const name = e.target.name.value.trim();
+        await api('/api/clients', { method: 'POST', body: JSON.stringify({ name }) });
+        e.target.reset();
+        await load();
+      };
+      await load();
+    })();
+  </script>
+</body>
+</html>

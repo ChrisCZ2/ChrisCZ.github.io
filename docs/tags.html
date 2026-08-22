@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Projects — Trackz</title>
+  <title>Tags — Trackz</title>
   <link rel="stylesheet" href="css/trackz.css">
 </head>
 <body class="app">
@@ -17,29 +17,28 @@
     </nav>
     <p class="nav-label">Manage</p>
     <nav class="side tight">
-      <a class="active" href="projects.html">Projects</a>
+      <a href="projects.html">Projects</a>
       <a href="clients.html">Clients</a>
-      <a href="tags.html">Tags</a>
+      <a class="active" href="tags.html">Tags</a>
     </nav>
     <div class="side-bottom"><a href="#" id="logout">Log out</a></div>
   </aside>
   <main class="content">
     <div id="trackbar"></div>
-    <header class="top slim">
-      <div>
-        <div class="eyebrow">PROJECTS</div>
-        <h1>Where time goes</h1>
-      </div>
-    </header>
-    <form class="quick-add" id="quickAdd">
-      <input name="name" required placeholder="New project name">
-      <input name="client" placeholder="Client (optional)">
-      <div class="swatches" id="quickColors"></div>
-      <button class="btn" type="submit">Create project</button>
-    </form>
-    <div id="projectGrid" class="project-grid"></div>
+    <header class="top slim"><div><div class="eyebrow">MANAGE</div><h1>Tags</h1></div></header>
+    <div id="list" class="panel"></div>
   </main>
   <script src="js/app.js"></script>
-  <script src="js/projects.js"></script>
+  <script>
+    (async () => {
+      await requireUser();
+      await mountTrackbar();
+      const entries = await api('/api/entries');
+      const tags = allTags(entries);
+      document.querySelector('#list').innerHTML = tags.length
+        ? tags.map(t => `<div class="row"><main><b>#${esc(t)}</b><small>${entries.filter(e => (e.tags || []).includes(t)).length} entries</small></main></div>`).join('')
+        : '<p class="empty-copy">Add tags from the timer bar with #meeting or the # button.</p>';
+    })();
+  </script>
 </body>
 </html>

@@ -106,9 +106,12 @@ function staticApi(url, opts = {}) {
       userId: user.id,
       projectId: body.projectId || '',
       description: body.description || 'Manual entry',
+      tags: Array.isArray(body.tags) ? body.tags : [],
+      billable: !!body.billable,
       startedAt: body.startedAt || new Date().toISOString(),
       duration: Number(body.duration) || 0,
-      running: false
+      running: false,
+      endedAt: body.endedAt || new Date().toISOString()
     };
     d.entries.push(e);
     saveDb(d);
@@ -117,7 +120,7 @@ function staticApi(url, opts = {}) {
   if (parts[0] === 'api' && parts[1] === 'entries' && parts[2] && method === 'PATCH') {
     const e = d.entries.find(x => x.id === parts[2] && x.userId === user.id);
     if (!e) throw new Error('Not found');
-    ['description', 'projectId', 'duration', 'startedAt'].forEach(key => {
+    ['description', 'projectId', 'duration', 'startedAt', 'endedAt', 'tags', 'billable'].forEach(key => {
       if (body[key] !== undefined) e[key] = body[key];
     });
     saveDb(d);
@@ -140,6 +143,8 @@ function staticApi(url, opts = {}) {
       userId: user.id,
       projectId: body.projectId || '',
       description: body.description || 'Tracked time',
+      tags: Array.isArray(body.tags) ? body.tags : [],
+      billable: !!body.billable,
       startedAt: new Date().toISOString(),
       duration: 0,
       running: true
@@ -156,6 +161,13 @@ function staticApi(url, opts = {}) {
     e.running = false;
     saveDb(d);
     return e;
+  }
+  if (path === '/api/clients' && method === 'GET') return mine(d.clients);
+  if (path === '/api/clients' && method === 'POST') {
+    const c = { id: crypto.randomUUID(), userId: user.id, name: body.name || 'New client', email: body.email || '', createdAt: new Date().toISOString() };
+    d.clients.push(c);
+    saveDb(d);
+    return c;
   }
   if (path === '/api/schedule' && method === 'GET') return mine(d.schedules);
   if (path === '/api/schedule' && method === 'POST') {
@@ -234,6 +246,45 @@ function dayLabel(key) {
   return date.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
 }
 
+function dayDate(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function timeRange(start, seconds, running) {
+  const a = new Date(start);
+  const b = running ? new Date() : (seconds ? new Date(a.getTime() + seconds * 1000) : a);
+  const f = d => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return `${f(a)} – ${f(b)}`;
+}
+
+function parseClock(s) {
+  const p = String(s || '0').trim().split(':').map(n => Number(n) || 0);
+  if (p.length === 3) return p[0] * 3600 + p[1] * 60 + p[2];
+  if (p.length === 2) return p[0] * 3600 + p[1] * 60;
+  return p[0] * 60;
+}
+
+function parseDesc(text, projects) {
+  const tags = [];
+  let projectId = '';
+  let description = String(text || '');
+  description = description.replace(/#([^\s#]+)/g, (_, t) => {
+    tags.push(t);
+    return '';
+  });
+  description = description.replace(/@([^\s@]+)/g, (_, name) => {
+    const p = projects.find(x => x.name.toLowerCase().startsWith(name.toLowerCase()));
+    if (p) projectId = p.id;
+    return '';
+  });
+  return { description: description.replace(/\s+/g, ' ').trim(), tags, projectId };
+}
+
+function allTags(entries) {
+  return [...new Set(entries.flatMap(e => e.tags || []))].sort();
+}
+
 function projectById(projects, id) {
   return projects.find(p => p.id === id) || null;
 }
@@ -243,12 +294,14 @@ function projectChip(project) {
   return `<span class="chip"><i class="dot" style="background:${esc(project.color)}"></i>${esc(project.name)}</span>`;
 }
 
-async function startTimer({ description, projectId } = {}) {
+async function startTimer({ description, projectId, tags, billable } = {}) {
   return api('/api/timer/start', {
     method: 'POST',
     body: JSON.stringify({
       description: (description || '').trim() || 'Tracked time',
-      projectId: projectId || ''
+      projectId: projectId || '',
+      tags: tags || [],
+      billable: !!billable
     })
   });
 }
@@ -257,26 +310,65 @@ async function mountTrackbar() {
   const bar = document.querySelector('#trackbar');
   if (!bar) return { refresh() {} };
 
+  bar.className = 'trackbar';
+  bar.innerHTML = `
+    <input id="barDesc" placeholder="What are you working on?" autocomplete="off">
+    <div class="project-pick">
+      <button type="button" class="project-btn" id="projectBtn">+ Project</button>
+      <div class="project-menu hidden" id="projectMenu"></div>
+    </div>
+    <div class="tag-pick">
+      <button type="button" class="ghost-ico" id="tagBtn" title="Tags">#</button>
+      <div class="project-menu hidden" id="tagMenu"></div>
+    </div>
+    <button type="button" class="ghost-ico" id="billableBtn" title="Billable">$</button>
+    <input id="barClock" class="clock-input" value="0:00:00" spellcheck="false">
+    <div class="mode-switch">
+      <button type="button" id="modeTimer" class="on" title="Timer mode">⏱</button>
+      <button type="button" id="modeManual" title="Manual mode">＋</button>
+    </div>
+    <button type="button" class="play" id="barToggle" title="Start timer">▶</button>`;
+
   let projects = await api('/api/projects');
   let entries = await api('/api/entries');
   let active = entries.find(e => e.running) || null;
   let projectId = active?.projectId || '';
+  let tags = [...(active?.tags || [])];
+  let billable = !!active?.billable;
+  let mode = 'timer';
 
   const desc = bar.querySelector('#barDesc');
   const clock = bar.querySelector('#barClock');
   const toggle = bar.querySelector('#barToggle');
   const projectBtn = bar.querySelector('#projectBtn');
   const menu = bar.querySelector('#projectMenu');
+  const tagBtn = bar.querySelector('#tagBtn');
+  const tagMenu = bar.querySelector('#tagMenu');
+  const billableBtn = bar.querySelector('#billableBtn');
+
+  function payloadDesc() {
+    const parsed = parseDesc(desc.value, projects);
+    return {
+      description: parsed.description || desc.value.trim() || 'Tracked time',
+      projectId: parsed.projectId || projectId,
+      tags: [...new Set([...tags, ...parsed.tags])],
+      billable
+    };
+  }
 
   function renderMenu() {
     menu.innerHTML = `
       <button type="button" class="menu-item" data-id="">No project</button>
-      ${projects.map(p => `<button type="button" class="menu-item" data-id="${p.id}"><i class="dot" style="background:${esc(p.color)}"></i>${esc(p.name)}</button>`).join('')}
+      ${projects.map(p => `<button type="button" class="menu-item" data-id="${p.id}"><i class="dot" style="background:${esc(p.color)}"></i>${esc(p.name)}${p.client ? `<small>${esc(p.client)}</small>` : ''}</button>`).join('')}
       <form class="create-project" id="quickProject">
         <input name="name" placeholder="Create a project" required>
         <div class="swatches">${PROJECT_COLORS.map((c, i) => `<button type="button" class="swatch-btn${i ? '' : ' on'}" data-color="${c}" style="background:${c}"></button>`).join('')}</div>
         <button class="btn" type="submit">Create</button>
       </form>`;
+    const known = allTags(entries);
+    tagMenu.innerHTML = `
+      ${known.map(t => `<button type="button" class="menu-item${tags.includes(t) ? ' on' : ''}" data-tag="${esc(t)}">${esc(t)}</button>`).join('')}
+      <form class="create-project" id="quickTag"><input name="name" placeholder="Create a tag"><button class="btn" type="submit">Add</button></form>`;
   }
 
   function syncProjectBtn() {
@@ -284,26 +376,38 @@ async function mountTrackbar() {
     projectBtn.innerHTML = p
       ? `<i class="dot" style="background:${esc(p.color)}"></i><span>${esc(p.name)}</span>`
       : '<span>+ Project</span>';
+    tagBtn.classList.toggle('on', tags.length > 0);
+    tagBtn.textContent = tags.length ? `#${tags.length}` : '#';
+    billableBtn.classList.toggle('on', billable);
   }
 
   function syncBar() {
     bar.classList.toggle('running', !!active);
+    bar.classList.toggle('manual', mode === 'manual');
     if (active) {
       desc.value = active.description;
       projectId = active.projectId || projectId;
+      tags = [...(active.tags || [])];
+      billable = !!active.billable;
       toggle.textContent = '■';
       toggle.classList.add('stop');
       toggle.title = 'Stop timer';
+      clock.readOnly = true;
     } else {
-      toggle.textContent = '▶';
+      toggle.textContent = mode === 'manual' ? '✓' : '▶';
       toggle.classList.remove('stop');
-      toggle.title = 'Start timer';
+      toggle.title = mode === 'manual' ? 'Add time entry' : 'Start timer';
+      clock.readOnly = mode === 'timer';
+      if (mode === 'timer') clock.value = '0:00:00';
     }
+    bar.querySelector('#modeTimer').classList.toggle('on', mode === 'timer');
+    bar.querySelector('#modeManual').classList.toggle('on', mode === 'manual');
     syncProjectBtn();
   }
 
   function tick() {
-    clock.textContent = active ? fmt(Math.floor((Date.now() - new Date(active.startedAt).getTime()) / 1000)) : '0:00:00';
+    if (active) clock.value = fmt(Math.floor((Date.now() - new Date(active.startedAt).getTime()) / 1000));
+    else if (mode === 'timer') clock.value = '0:00:00';
   }
 
   async function refresh() {
@@ -321,28 +425,37 @@ async function mountTrackbar() {
   tick();
   setInterval(tick, 500);
 
+  function closeMenus() {
+    menu.classList.add('hidden');
+    tagMenu.classList.add('hidden');
+  }
   projectBtn.onclick = e => {
     e.stopPropagation();
+    tagMenu.classList.add('hidden');
     menu.classList.toggle('hidden');
   };
-  document.addEventListener('click', () => menu.classList.add('hidden'));
+  tagBtn.onclick = e => {
+    e.stopPropagation();
+    menu.classList.add('hidden');
+    tagMenu.classList.toggle('hidden');
+  };
+  document.addEventListener('click', closeMenus);
   menu.addEventListener('click', e => e.stopPropagation());
+  tagMenu.addEventListener('click', e => e.stopPropagation());
 
   menu.addEventListener('click', async e => {
     const item = e.target.closest('.menu-item');
     if (!item) return;
     projectId = item.dataset.id || '';
     if (active) await api(`/api/entries/${active.id}`, { method: 'PATCH', body: JSON.stringify({ projectId }) });
-    menu.classList.add('hidden');
+    closeMenus();
     await refresh();
   });
-
   menu.addEventListener('click', e => {
     const swatch = e.target.closest('.swatch-btn');
     if (!swatch) return;
     menu.querySelectorAll('.swatch-btn').forEach(b => b.classList.toggle('on', b === swatch));
   });
-
   menu.addEventListener('submit', async e => {
     if (e.target.id !== 'quickProject') return;
     e.preventDefault();
@@ -351,23 +464,63 @@ async function mountTrackbar() {
     if (!name) return;
     const p = await api('/api/projects', { method: 'POST', body: JSON.stringify({ name, color }) });
     projectId = p.id;
-    menu.classList.add('hidden');
+    closeMenus();
     e.target.reset();
     await refresh();
   });
 
+  tagMenu.addEventListener('click', async e => {
+    const item = e.target.closest('.menu-item');
+    if (!item) return;
+    const tag = item.dataset.tag;
+    tags = tags.includes(tag) ? tags.filter(t => t !== tag) : [...tags, tag];
+    if (active) await api(`/api/entries/${active.id}`, { method: 'PATCH', body: JSON.stringify({ tags }) });
+    await refresh();
+  });
+  tagMenu.addEventListener('submit', async e => {
+    if (e.target.id !== 'quickTag') return;
+    e.preventDefault();
+    const name = e.target.name.value.trim();
+    if (!name) return;
+    if (!tags.includes(name)) tags.push(name);
+    if (active) await api(`/api/entries/${active.id}`, { method: 'PATCH', body: JSON.stringify({ tags }) });
+    e.target.reset();
+    await refresh();
+  });
+
+  billableBtn.onclick = async () => {
+    billable = !billable;
+    if (active) await api(`/api/entries/${active.id}`, { method: 'PATCH', body: JSON.stringify({ billable }) });
+    syncBar();
+  };
+
+  bar.querySelector('#modeTimer').onclick = () => { mode = 'timer'; syncBar(); };
+  bar.querySelector('#modeManual').onclick = () => { mode = 'manual'; if (!active) clock.value = '1:00:00'; syncBar(); };
+
   toggle.onclick = async () => {
+    const data = payloadDesc();
     if (active) await api('/api/timer/stop', { method: 'POST' });
-    else await startTimer({ description: desc.value, projectId });
+    else if (mode === 'manual') {
+      const duration = parseClock(clock.value);
+      const ended = new Date();
+      await api('/api/entries', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...data,
+          duration,
+          endedAt: ended.toISOString(),
+          startedAt: new Date(ended.getTime() - duration * 1000).toISOString()
+        })
+      });
+    } else await startTimer(data);
+    desc.value = '';
     await refresh();
   };
 
   desc.addEventListener('keydown', async e => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (!active) await startTimer({ description: desc.value, projectId });
-      else await api(`/api/entries/${active.id}`, { method: 'PATCH', body: JSON.stringify({ description: desc.value }) });
-      await refresh();
+      toggle.click();
     }
   });
 

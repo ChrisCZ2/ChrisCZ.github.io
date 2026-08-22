@@ -6,59 +6,70 @@
   <title>Timer — Trackz</title>
   <link rel="stylesheet" href="css/trackz.css">
 </head>
-<body class="app">
+<body class="app timer-page">
   <aside>
     <a class="brand" href="timer.html">trackz<span>.</span></a>
-    <nav class="side">
-      <a class="active" href="timer.html">▶ <span>Timer</span></a>
-      <a href="schedule.html">▦ <span>Schedule</span></a>
-      <a href="projects.html">□ <span>Projects</span></a>
-      <a href="dashboard.html">▤ <span>Reports</span></a>
+    <p class="nav-label">Analyze</p>
+    <nav class="side tight">
+      <a class="active" href="timer.html">Timer</a>
+      <a href="timer.html?view=calendar">Calendar</a>
+      <a href="dashboard.html">Reports</a>
     </nav>
-    <div class="side-bottom"><a href="#" id="logout">↪ <span>Log out</span></a></div>
-  </aside>
-  <main class="content">
-    <div class="trackbar" id="trackbar">
-      <input id="barDesc" placeholder="What are you working on?" autocomplete="off">
-      <div class="project-pick">
-        <button type="button" class="project-btn" id="projectBtn">+ Project</button>
-        <div class="project-menu hidden" id="projectMenu"></div>
-      </div>
-      <time id="barClock">0:00:00</time>
-      <button type="button" class="play" id="barToggle" title="Start timer">▶</button>
+    <p class="nav-label">Manage</p>
+    <nav class="side tight">
+      <a href="projects.html">Projects</a>
+      <a href="clients.html">Clients</a>
+      <a href="tags.html">Tags</a>
+    </nav>
+    <div class="side-bottom">
+      <div class="user-chip" id="userChip"></div>
+      <a href="#" id="logout">Log out</a>
     </div>
-    <header class="top slim">
-      <div>
-        <div class="eyebrow">TIMER</div>
-        <h1>Today’s work</h1>
-      </div>
-      <button class="btn ghost" id="manual">+ Manual time</button>
-    </header>
-    <div id="days"></div>
-  </main>
-  <div id="modal" class="modal hidden">
-    <div class="modal-card">
-      <button class="close" id="close">×</button>
-      <h2>Add time</h2>
-      <form id="manualForm">
-        <label>What did you work on?<input name="description" required placeholder="Website redesign"></label>
-        <label>Project
-          <select name="projectId" id="manualProject"><option value="">No project</option></select>
-        </label>
-        <div class="split">
-          <label>When<input name="startedAt" type="datetime-local" required></label>
-          <label>Duration
-            <select name="duration">
-              <option value="900">15 min</option>
-              <option value="1800">30 min</option>
-              <option value="3600" selected>1 hour</option>
-              <option value="7200">2 hours</option>
-              <option value="14400">4 hours</option>
-            </select>
-          </label>
+  </aside>
+  <div class="workspace">
+    <div id="trackbar"></div>
+    <div class="workspace-body">
+      <section class="workspace-main">
+        <div class="view-bar">
+          <div class="view-tabs">
+            <button type="button" data-view="list" class="on">List</button>
+            <button type="button" data-view="calendar">Calendar</button>
+            <button type="button" data-view="timesheet">Timesheet</button>
+          </div>
+          <div class="range-nav">
+            <button type="button" class="btn ghost" id="prevRange">←</button>
+            <strong id="rangeLabel">This week</strong>
+            <button type="button" class="btn ghost" id="nextRange">→</button>
+            <button type="button" class="btn ghost" id="todayRange">Today</button>
+          </div>
         </div>
-        <button class="btn big">Add entry</button>
-      </form>
+        <div id="viewRoot"></div>
+      </section>
+      <aside class="insights" id="insights">
+        <div class="insight-head">
+          <h2>Insights</h2>
+          <button type="button" class="ghost-ico" id="hideInsights">✕</button>
+        </div>
+        <a class="stat-card" href="dashboard.html">
+          <span>Today</span>
+          <strong id="insToday">0:00:00</strong>
+          <small id="insTodayBill">0:00:00 billable</small>
+        </a>
+        <a class="stat-card" href="dashboard.html">
+          <span>This week</span>
+          <strong id="insWeek">0:00:00</strong>
+          <small id="insWeekBill">0:00:00 billable</small>
+        </a>
+        <h3>Favorites</h3>
+        <div id="favorites" class="fav-list"></div>
+        <h3>Weekly goal</h3>
+        <div class="goal">
+          <input id="weekGoal" type="number" min="1" max="80" value="40">
+          <span>hours</span>
+          <div class="bar"><span id="goalBar"></span></div>
+          <small id="goalCopy">0 of 40h</small>
+        </div>
+      </aside>
     </div>
   </div>
   <script src="js/app.js"></script>
