@@ -155,7 +155,7 @@ function staticApi(url, opts = {}) {
   if (parts[0] === 'api' && parts[1] === 'entries' && parts[2] && method === 'PATCH') {
     const e = d.entries.find(x => x.id === parts[2] && x.userId === user.id);
     if (!e) throw new Error('Not found');
-    ['description', 'projectId', 'duration', 'startedAt', 'endedAt', 'tags', 'billable'].forEach(key => {
+    ['description', 'projectId', 'duration', 'startedAt', 'endedAt', 'tags', 'billable', 'running'].forEach(key => {
       if (body[key] !== undefined) e[key] = body[key];
     });
     saveDb(d);
@@ -313,10 +313,48 @@ function timeRange(start, seconds, running) {
 }
 
 function parseClock(s) {
-  const p = String(s || '0').trim().split(':').map(n => Number(n) || 0);
-  if (p.length === 3) return p[0] * 3600 + p[1] * 60 + p[2];
-  if (p.length === 2) return p[0] * 3600 + p[1] * 60;
-  return p[0] * 60;
+  const raw = String(s || '').trim().toLowerCase();
+  if (!raw) return 0;
+  const colon = raw.match(/^(\d+):(\d{1,2})(?::(\d{1,2}))?$/);
+  if (colon) {
+    const h = Number(colon[1]) || 0, m = Number(colon[2]) || 0, sec = Number(colon[3]) || 0;
+    return colon[3] != null ? h * 3600 + m * 60 + sec : h * 3600 + m * 60;
+  }
+  if (/[hms]/.test(raw)) {
+    const h = raw.match(/(\d+(?:\.\d+)?)\s*h/);
+    const m = raw.match(/(\d+(?:\.\d+)?)\s*m/);
+    const sec = raw.match(/(\d+(?:\.\d+)?)\s*s/);
+    return Math.round((h ? parseFloat(h[1]) * 3600 : 0) + (m ? parseFloat(m[1]) * 60 : 0) + (sec ? parseFloat(sec[1]) : 0));
+  }
+  if (/^\d+(?:\.\d+)?$/.test(raw)) return Math.round(parseFloat(raw) * 60);
+  return 0;
+}
+
+function parseDayTime(text, dateStr) {
+  const raw = String(text || '').trim().toLowerCase();
+  if (!raw || raw === 'now') return new Date();
+  const day = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
+  if (Number.isNaN(day.getTime())) return null;
+  let ampm = '';
+  const compact = raw.replace(/\s+/g, '').replace(/([ap])\.?m\.?$/, (_, p) => { ampm = p; return ''; });
+  let h = 0, min = 0;
+  if (/^\d{3,4}$/.test(compact)) {
+    h = compact.length === 3 ? Number(compact.slice(0, 1)) : Number(compact.slice(0, 2));
+    min = Number(compact.slice(-2));
+  } else {
+    const m = compact.match(/^(\d{1,2})(?::(\d{1,2}))?$/);
+    if (!m) return null;
+    h = Number(m[1]);
+    min = Number(m[2] || 0);
+  }
+  if (ampm === 'p' && h < 12) h += 12;
+  if (ampm === 'a' && h === 12) h = 0;
+  day.setHours(h, min, 0, 0);
+  return day;
+}
+
+function formatDayTime(date) {
+  return new Date(date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
 function parseDesc(text, projects) {

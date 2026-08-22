@@ -97,8 +97,73 @@
     await bar.refresh();
   }
 
+  let editorRunning = false;
+  let editorHoldTick = false;
+  function stopEditorTick() {
+    clearInterval(openEditor.tick);
+    openEditor.tick = null;
+  }
+  function editorStart() {
+    return parseDayTime(form.startTime.value, form.entryDate.value) || new Date();
+  }
+  function editorEnd() {
+    const typed = String(form.endTime.value || '').trim();
+    if (editorRunning && (!typed || /^now$/i.test(typed))) return new Date();
+    const end = parseDayTime(form.endTime.value, form.entryDate.value);
+    if (!end) return new Date(editorStart().getTime() + 3600 * 1000);
+    if (end <= editorStart()) end.setDate(end.getDate() + 1);
+    return end;
+  }
+  function paintTimes(start, end, dur, running) {
+    form.entryDate.value = dayKey(start);
+    form.startTime.value = formatDayTime(start);
+    form.endTime.value = running ? '' : formatDayTime(end);
+    form.endTime.placeholder = running ? 'now' : '4:10 PM';
+    form.duration.value = fmt(Math.max(0, dur));
+  }
+  function syncEditorTime(changed) {
+    const running = editorRunning && !String(form.endTime.value || '').trim();
+    let start = editorStart();
+    let end = running ? new Date() : editorEnd();
+    let dur = Math.max(0, Math.floor((end - start) / 1000));
+    if (changed === 'duration') {
+      dur = parseClock(form.duration.value);
+      if (running) {
+        start = new Date(Date.now() - dur * 1000);
+        end = new Date();
+      } else {
+        end = new Date(start.getTime() + dur * 1000);
+      }
+    } else if (changed === 'start') {
+      start = editorStart();
+      if (running) {
+        if (start > Date.now()) start = new Date();
+        end = new Date();
+        dur = Math.max(0, Math.floor((end - start) / 1000));
+      } else {
+        end = new Date(start.getTime() + Math.max(parseClock(form.duration.value), 60) * 1000);
+        dur = Math.max(0, Math.floor((end - start) / 1000));
+      }
+    } else if (changed === 'end') {
+      editorRunning = false;
+      stopEditorTick();
+      end = editorEnd();
+      start = editorStart();
+      if (end <= start) end = new Date(start.getTime() + 60 * 1000);
+      dur = Math.max(0, Math.floor((end - start) / 1000));
+    } else if (changed === 'date') {
+      const next = parseDayTime(form.startTime.value, form.entryDate.value) || start;
+      const keep = Math.max(parseClock(form.duration.value), running ? durationOf({ running: true, startedAt: start.toISOString() }) : dur);
+      start = next;
+      end = running ? new Date() : new Date(start.getTime() + keep * 1000);
+      dur = running ? Math.max(0, Math.floor((end - start) / 1000)) : keep;
+    }
+    paintTimes(start, end, dur, running);
+  }
+
   function openEditor(entry) {
-    const running = !!entry.running;
+    stopEditorTick();
+    editorRunning = !!entry.running;
     form.entryId.value = entry.id || '';
     form.description.value = entry.description || '';
     const selectedProject = entry.projectId || bar.getProjectId() || lastProjectId(cache.projects);
@@ -106,77 +171,86 @@
     form.tags.value = (entry.tags || []).join(', ');
     form.billable.checked = !!entry.billable;
     const start = new Date(entry.startedAt || Date.now());
-    const dur = running ? durationOf(entry) : (entry.duration || 3600);
+    const dur = editorRunning ? durationOf(entry) : (entry.duration || 3600);
     const end = entry.endedAt ? new Date(entry.endedAt) : new Date(start.getTime() + dur * 1000);
-    form.startedAt.value = toLocalInput(start);
-    form.endedAt.disabled = running;
-    form.endedAt.value = running ? '' : toLocalInput(end);
-    form.duration.readOnly = running;
-    form.duration.value = fmt(dur);
+    paintTimes(start, end, dur, editorRunning);
     const title = document.querySelector('#editorTitle');
-    if (title) title.textContent = running ? 'Running timer' : (entry.id ? 'Edit time entry' : 'New time entry');
+    if (title) title.textContent = editorRunning ? 'Running timer' : (entry.id ? 'Edit time entry' : 'New time entry');
     editor.hidden = false;
+    if (editorRunning) {
+      openEditor.tick = setInterval(() => {
+        if (editor.hidden || editorHoldTick || String(form.endTime.value || '').trim()) return;
+        const liveStart = editorStart();
+        paintTimes(liveStart, new Date(), Math.max(0, Math.floor((Date.now() - liveStart.getTime()) / 1000)), true);
+      }, 500);
+    }
   }
 
   function draftFromForm() {
-    const startedAt = new Date(form.startedAt.value).toISOString();
-    const endedAt = new Date(form.endedAt.value).toISOString();
+    const running = editorRunning && !String(form.endTime.value || '').trim();
+    const start = editorStart();
+    const end = running ? new Date() : editorEnd();
     return {
       description: form.description.value.trim() || 'Tracked time',
       projectId: form.projectId.value,
       tags: form.tags.value.split(',').map(s => s.trim()).filter(Boolean),
       billable: form.billable.checked,
-      startedAt,
-      endedAt,
-      duration: Math.max(0, Math.floor((new Date(endedAt) - new Date(startedAt)) / 1000))
+      startedAt: start.toISOString(),
+      endedAt: end.toISOString(),
+      duration: Math.max(0, Math.floor((end - start) / 1000)),
+      running
     };
   }
 
   async function persistEditor() {
     const id = form.entryId.value;
-    const current = findEntry(id);
-    if (current?.running) {
-      const projectId = form.projectId.value;
+    const draft = draftFromForm();
+    if (id && draft.running) {
       await saveEntry(id, {
-        description: form.description.value.trim() || 'Tracked time',
-        projectId,
-        tags: form.tags.value.split(',').map(s => s.trim()).filter(Boolean),
-        billable: form.billable.checked,
-        startedAt: new Date(form.startedAt.value).toISOString()
+        description: draft.description,
+        projectId: draft.projectId,
+        tags: draft.tags,
+        billable: draft.billable,
+        startedAt: draft.startedAt,
+        running: true
       });
-      if (projectId) rememberProject(projectId);
+    } else if (id) {
+      await saveEntry(id, { ...draft, running: false });
     } else {
-      const draft = draftFromForm();
-      if (id) await saveEntry(id, draft);
-      else await api('/api/entries', { method: 'POST', body: JSON.stringify(draft) });
-      if (draft.projectId) rememberProject(draft.projectId);
+      await api('/api/entries', { method: 'POST', body: JSON.stringify({ ...draft, running: false }) });
     }
+    if (draft.projectId) rememberProject(draft.projectId);
+    stopEditorTick();
     editor.hidden = true;
     await bar.refresh();
   }
 
   form.onsubmit = async e => { e.preventDefault(); await persistEditor(); };
-  form.duration.addEventListener('change', () => {
-    const dur = parseClock(form.duration.value);
-    const start = new Date(form.startedAt.value);
-    form.endedAt.value = toLocalInput(new Date(start.getTime() + dur * 1000));
-  });
-  document.querySelector('#editorClose').onclick = () => { editor.hidden = true; };
+  form.duration.addEventListener('focus', () => { editorHoldTick = true; });
+  form.duration.addEventListener('blur', () => { editorHoldTick = false; syncEditorTime('duration'); });
+  form.duration.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); form.duration.blur(); } });
+  form.startTime.addEventListener('change', () => syncEditorTime('start'));
+  form.startTime.addEventListener('blur', () => syncEditorTime('start'));
+  form.endTime.addEventListener('change', () => { if (String(form.endTime.value || '').trim()) syncEditorTime('end'); });
+  form.endTime.addEventListener('blur', () => { if (String(form.endTime.value || '').trim()) syncEditorTime('end'); });
+  form.entryDate.addEventListener('change', () => syncEditorTime('date'));
+  document.querySelector('#editorClose').onclick = () => { stopEditorTick(); editor.hidden = true; };
   form.querySelectorAll('[data-act]').forEach(btn => {
     btn.onclick = async () => {
       const act = btn.dataset.act;
       const id = form.entryId.value;
       const entry = findEntry(id) || draftFromForm();
-      if (act === 'continue') { editor.hidden = true; await startTimer(entry); await bar.refresh(); }
-      if (act === 'duplicate') { if (id) await duplicateEntry(entry); editor.hidden = true; await bar.refresh(); }
+      if (act === 'continue') { stopEditorTick(); editor.hidden = true; await startTimer(entry); await bar.refresh(); }
+      if (act === 'duplicate') { if (id) await duplicateEntry(entry); stopEditorTick(); editor.hidden = true; await bar.refresh(); }
       if (act === 'split') {
         if (!id) return;
-        try { await splitEntry(entry); editor.hidden = true; await bar.refresh(); }
+        try { await splitEntry(entry); stopEditorTick(); editor.hidden = true; await bar.refresh(); }
         catch (err) { showToast(err.message); }
       }
       if (act === 'favorite') { toggleFav(entry); await load(); }
       if (act === 'project' && entry.projectId) location.href = page('projects.html');
       if (act === 'delete') {
+        stopEditorTick();
         editor.hidden = true;
         await removeEntry(entry);
       }
@@ -618,6 +692,7 @@
     if (e.shiftKey && e.key === '?') { document.querySelector('#shortcuts').hidden = false; return; }
     if (typing) return;
     if (e.key === 'Escape') {
+      stopEditorTick();
       editor.hidden = true;
       document.querySelector('#shortcuts').hidden = true;
       document.querySelector('#settings').hidden = true;

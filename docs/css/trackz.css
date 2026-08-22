@@ -140,6 +140,10 @@
 .bulk-bar button{border:0;background:#fff;color:#171717;border-radius:8px;padding:6px 10px;cursor:pointer;font:600 12px inherit}
 .bulk-bar .danger{background:#e45656;color:#fff}
 .editor-actions{display:flex;flex-wrap:wrap;gap:8px}
+.time-edit{display:grid;gap:12px}
+.time-edit input[name="duration"]{font:600 22px 'Segoe UI',system-ui,sans-serif;letter-spacing:.3px}
+.time-edit input[name="startTime"],.time-edit input[name="endTime"]{font:600 16px 'Segoe UI',system-ui,sans-serif}
+.time-hint{margin:0;color:#7a7380}
 .keys{padding-left:0;list-style:none}
 .keys li{display:flex;gap:10px;align-items:center;margin:10px 0}
 kbd{background:#f3f1eb;border:1px solid var(--line);border-radius:6px;padding:2px 7px;font:12px 'DM Mono'}
