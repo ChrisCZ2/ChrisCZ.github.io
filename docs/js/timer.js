@@ -73,7 +73,7 @@
     form.startedAt.value = toLocalInput(start);
     form.endedAt.value = toLocalInput(end);
     form.duration.value = fmt(dur);
-    editor.classList.remove('hidden');
+    editor.hidden = false;
   }
 
   function draftFromForm() {
@@ -94,7 +94,7 @@
     const draft = draftFromForm();
     if (form.id.value) await saveEntry(form.id.value, draft);
     else await api('/api/entries', { method: 'POST', body: JSON.stringify(draft) });
-    editor.classList.add('hidden');
+    editor.hidden = true;
     await bar.refresh();
   }
 
@@ -104,23 +104,23 @@
     const start = new Date(form.startedAt.value);
     form.endedAt.value = toLocalInput(new Date(start.getTime() + dur * 1000));
   });
-  document.querySelector('#editorClose').onclick = () => editor.classList.add('hidden');
+  document.querySelector('#editorClose').onclick = () => { editor.hidden = true; };
   form.querySelectorAll('[data-act]').forEach(btn => {
     btn.onclick = async () => {
       const act = btn.dataset.act;
       const id = form.id.value;
       const entry = findEntry(id) || draftFromForm();
-      if (act === 'continue') { editor.classList.add('hidden'); await startTimer(entry); await bar.refresh(); }
-      if (act === 'duplicate') { if (id) await duplicateEntry(entry); editor.classList.add('hidden'); await bar.refresh(); }
+      if (act === 'continue') { editor.hidden = true; await startTimer(entry); await bar.refresh(); }
+      if (act === 'duplicate') { if (id) await duplicateEntry(entry); editor.hidden = true; await bar.refresh(); }
       if (act === 'split') {
         if (!id) return;
-        try { await splitEntry(entry); editor.classList.add('hidden'); await bar.refresh(); }
+        try { await splitEntry(entry); editor.hidden = true; await bar.refresh(); }
         catch (err) { showToast(err.message); }
       }
       if (act === 'favorite') { toggleFav(entry); await load(); }
       if (act === 'project' && entry.projectId) location.href = page('projects.html');
       if (act === 'delete') {
-        editor.classList.add('hidden');
+        editor.hidden = true;
         if (id) {
           const copy = { ...entry };
           await api(`/api/entries/${id}`, { method: 'DELETE' });
@@ -162,7 +162,11 @@
   }
 
   async function load() {
-    const [projects, entries, planned] = await Promise.all([api('/api/projects'), api('/api/entries'), api('/api/schedule')]);
+    let [projects, entries, planned] = await Promise.all([api('/api/projects'), api('/api/entries'), api('/api/schedule')]);
+    if (!projects.length) {
+      const starter = await api('/api/projects', { method: 'POST', body: JSON.stringify({ name: 'General', color: '#e57cd8' }) });
+      projects = [starter];
+    }
     cache = { projects, entries, planned };
     const days = weekDays();
     const cfg = settings();
@@ -170,7 +174,7 @@
     const weekTotal = document.querySelector('#weekTotal');
     document.querySelectorAll('.view-tabs [data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === view));
     document.querySelectorAll('.side a[href="timer.html"]').forEach(a => a.classList.toggle('active', true));
-    document.querySelector('#bulkBar').classList.toggle('hidden', selected.size === 0);
+    document.querySelector('#bulkBar').hidden = selected.size === 0;
     document.querySelector('#bulkCount').textContent = `${selected.size} selected`;
 
     const weekStart = days[0];
@@ -199,6 +203,19 @@
       const p = projectById(projects, f.projectId);
       return `<button type="button" class="fav" data-fav-start="${i}"><small>${i + 1}</small>${projectChip(p)}<span>${esc(f.description || 'Favorite')}</span></button>`;
     }).join('') || '<p class="empty-copy">Pin an entry as a favorite, then press 1–9.</p>';
+    const strip = document.querySelector('#projectStrip');
+    if (strip) {
+      strip.innerHTML = projects.length
+        ? projects.map(p => {
+          const total = sum(weekEntries.filter(e => e.projectId === p.id));
+          return `<button type="button" class="proj-chip" data-start-project="${p.id}">
+            <i class="dot" style="background:${esc(p.color)}"></i>
+            <b>${esc(p.name)}</b>
+            <span>${hm(total)}</span>
+          </button>`;
+        }).join('') + '<a class="proj-chip add" href="projects.html">+ New project</a>'
+        : '<a class="proj-chip add" href="projects.html">Create a project to start tracking</a>';
+    }
 
     const startHour = cfg.calStart;
     const hours = Math.max(8, cfg.calEnd - cfg.calStart);
@@ -368,8 +385,8 @@
   document.querySelector('#nextRange').onclick = () => { weekOffset += 1; load(); };
   document.querySelector('#todayRange').onclick = () => { weekOffset = 0; load(); };
   document.querySelector('#weekGoal').onchange = e => { localStorage.setItem(goalKey, String(e.target.value || 40)); load(); };
-  document.querySelector('#hideInsights').onclick = () => document.querySelector('#insights').classList.add('hidden');
-  document.querySelector('#showInsights').onclick = () => document.querySelector('#insights').classList.remove('hidden');
+  document.querySelector('#hideInsights').onclick = () => { document.querySelector('#insights').hidden = true; };
+  document.querySelector('#showInsights').onclick = () => { document.querySelector('#insights').hidden = false; };
 
   const setBox = document.querySelector('#settings');
   document.querySelector('#settingsBtn').onclick = () => {
@@ -378,9 +395,9 @@
     document.querySelector('#setShortcuts').checked = s.shortcuts;
     document.querySelector('#setCalStart').value = s.calStart;
     document.querySelector('#setCalEnd').value = s.calEnd;
-    setBox.classList.remove('hidden');
+    setBox.hidden = false;
   };
-  document.querySelector('#settingsClose').onclick = () => setBox.classList.add('hidden');
+  document.querySelector('#settingsClose').onclick = () => { setBox.hidden = true; };
   ['setGroup', 'setShortcuts'].forEach(id => {
     document.querySelector('#' + id).onchange = () => {
       setSettings({ group: document.querySelector('#setGroup').checked, shortcuts: document.querySelector('#setShortcuts').checked });
@@ -394,21 +411,7 @@
     };
   });
 
-  document.querySelector('#shortcutsClose').onclick = () => document.querySelector('#shortcuts').classList.add('hidden');
-  document.querySelector('#focusClose').onclick = () => document.querySelector('#focus').classList.add('hidden');
-  document.querySelector('#focusStop').onclick = async () => { await bar.stop(); document.querySelector('#focus').classList.add('hidden'); };
-  document.addEventListener('click', e => {
-    if (e.target.id === 'focusBtn') {
-      const active = bar.getActive();
-      document.querySelector('#focusDesc').textContent = active?.description || 'Tracking';
-      document.querySelector('#focus').classList.remove('hidden');
-    }
-  });
-  setInterval(() => {
-    const active = bar.getActive();
-    const clock = document.querySelector('#focusClock');
-    if (active && clock) clock.textContent = fmt(Math.floor((Date.now() - new Date(active.startedAt).getTime()) / 1000));
-  }, 500);
+  document.querySelector('#shortcutsClose').onclick = () => { document.querySelector('#shortcuts').hidden = true; };
 
   root.addEventListener('click', async e => {
     const more = e.target.closest('[data-more]');
@@ -508,6 +511,14 @@
   };
   document.querySelector('#bulkClear').onclick = () => { selected.clear(); load(); };
 
+  document.querySelector('#projectStrip')?.addEventListener('click', async e => {
+    const btn = e.target.closest('[data-start-project]');
+    if (!btn) return;
+    const p = projectById(cache.projects, btn.dataset.startProject);
+    await startTimer({ description: p?.name || 'Tracked time', projectId: btn.dataset.startProject });
+    await bar.refresh();
+  });
+
   document.querySelector('#insights').addEventListener('click', async e => {
     const favStart = e.target.closest('[data-fav-start]');
     if (!favStart) return;
@@ -524,12 +535,12 @@
   document.addEventListener('keydown', async e => {
     if (!settings().shortcuts) return;
     const typing = /input|textarea|select/i.test(e.target.tagName);
-    if (e.shiftKey && e.key === '?') { document.querySelector('#shortcuts').classList.remove('hidden'); return; }
+    if (e.shiftKey && e.key === '?') { document.querySelector('#shortcuts').hidden = false; return; }
     if (typing) return;
     if (e.key === 'Escape') {
-      editor.classList.add('hidden');
-      document.querySelector('#shortcuts').classList.add('hidden');
-      document.querySelector('#focus').classList.add('hidden');
+      editor.hidden = true;
+      document.querySelector('#shortcuts').hidden = true;
+      document.querySelector('#settings').hidden = true;
     }
     if (e.key === 'n' || e.key === 'N') { e.preventDefault(); await bar.startNew(); }
     if (e.key === 's' || e.key === 'S') { e.preventDefault(); await bar.stop(); }

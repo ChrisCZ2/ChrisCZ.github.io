@@ -28,7 +28,7 @@ function saveDb(d) {
 }
 
 function staticLogin(provider) {
-  const names = { google: 'Google user', github: 'GitHub user', proton: 'Proton user' };
+  const names = { google: 'Google user', github: 'GitHub user', proton: 'Proton user', local: 'My workspace' };
   const existing = currentUser();
   const user = {
     id: existing?.id || localStorage.getItem('trackz.uid') || crypto.randomUUID(),
@@ -214,8 +214,15 @@ async function api(url, opts = {}) {
 }
 
 async function requireUser() {
+  if (window.TRACKZ_STATIC) {
+    if (!currentUser()) staticLogin('local');
+    return currentUser();
+  }
   const d = await api('/api/auth/me');
-  if (!d.user) location.href = page('login.html');
+  if (!d.user) {
+    location.href = page('login.html');
+    throw new Error('Authentication required');
+  }
   return d.user;
 }
 
@@ -409,8 +416,7 @@ async function mountTrackbar() {
       <button type="button" id="modeManual" title="Manual mode">＋</button>
     </div>
       <button type="button" class="play" id="barToggle" title="Start timer">▶</button>
-    <button type="button" class="ghost-ico hidden" id="discardBtn" title="Discard running entry">✕</button>
-    <button type="button" class="ghost-ico hidden" id="focusBtn" title="Focus mode">◎</button>`;
+    <button type="button" class="ghost-ico" id="discardBtn" title="Discard running entry" hidden>✕</button>`;
 
   let projects = await api('/api/projects');
   let entries = await api('/api/entries');
@@ -489,8 +495,7 @@ async function mountTrackbar() {
       clock.readOnly = false;
       if (mode === 'timer' && !clock.dataset.dirty) clock.value = '0:00:00';
     }
-    bar.querySelector('#discardBtn').classList.toggle('hidden', !active);
-    bar.querySelector('#focusBtn').classList.toggle('hidden', !active);
+    bar.querySelector('#discardBtn').hidden = !active;
     bar.querySelector('#modeTimer').classList.toggle('on', mode === 'timer');
     bar.querySelector('#modeManual').classList.toggle('on', mode === 'manual');
     syncProjectBtn();
@@ -639,22 +644,12 @@ async function mountTrackbar() {
     syncBar();
   });
 
-  clock.addEventListener('input', () => { clock.dataset.dirty = '1'; });
-  clock.addEventListener('blur', async () => {
-    if (!clock.dataset.dirty) return;
+  clock.addEventListener('change', async () => {
+    if (!active) return;
     const duration = parseClock(clock.value);
-    delete clock.dataset.dirty;
-    if (active) {
-      await api(`/api/entries/${active.id}`, { method: 'PATCH', body: JSON.stringify({ startedAt: new Date(Date.now() - duration * 1000).toISOString() }) });
-      await refresh();
-      return;
-    }
-    if (mode === 'timer' && duration > 0) {
-      const ended = new Date();
-      await api('/api/entries', { method: 'POST', body: JSON.stringify({ ...payloadDesc(), duration, endedAt: ended.toISOString(), startedAt: new Date(ended.getTime() - duration * 1000).toISOString() }) });
-      desc.value = '';
-      await refresh();
-    }
+    if (!duration) return;
+    await api(`/api/entries/${active.id}`, { method: 'PATCH', body: JSON.stringify({ startedAt: new Date(Date.now() - duration * 1000).toISOString() }) });
+    await refresh();
   });
 
   bar.querySelector('#discardBtn').onclick = async () => {
