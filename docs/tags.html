@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Tags — Trackz</title>
-  <link rel="stylesheet" href="css/trackz.css?v=9">
+  <link rel="stylesheet" href="css/trackz.css?v=10">
 </head>
 <body class="app">
   <aside>
@@ -28,16 +28,20 @@
     <header class="top slim"><div><div class="eyebrow">MANAGE</div><h1>Tags</h1></div></header>
     <div id="list" class="panel"></div>
   </main>
-  <script src="js/app.js?v=9"></script>
+  <script src="js/app.js?v=10"></script>
   <script>
     (async () => {
       await requireUser();
       await mountTrackbar();
-      const entries = await api('/api/entries');
-      const tags = allTags(entries);
-      document.querySelector('#list').innerHTML = tags.length
-        ? tags.map(t => `<div class="row"><main><b>#${esc(t)}</b><small>${entries.filter(e => (e.tags || []).includes(t)).length} entries</small></main></div>`).join('')
-        : '<p class="empty-copy">Add tags from the timer bar with #meeting or the # button.</p>';
+      async function load() {
+        const entries = await api('/api/entries');
+        const tags = allTags(entries);
+        document.querySelector('#list').innerHTML = tags.length
+          ? tags.map(t => `<div class="row"><main><b>#${esc(t)}</b><small>${entries.filter(e => (e.tags || []).includes(t)).length} entries</small></main></div>`).join('')
+          : '<p class="empty-copy">Add tags from the timer bar with #meeting or the # button.</p>';
+      }
+      document.addEventListener('trackz:refresh', load);
+      await load();
     })();
   </script>
 </body>

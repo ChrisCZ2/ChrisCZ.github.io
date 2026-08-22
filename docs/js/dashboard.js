@@ -9,15 +9,18 @@
     const weekStart = new Date(now);
     weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7));
     weekStart.setHours(0, 0, 0, 0);
-    const today = dayKey(now);
-    const week = entries.filter(e => new Date(e.startedAt) >= weekStart);
-    const todayEntries = entries.filter(e => dayKey(e.startedAt) === today);
-    const sum = list => list.reduce((a, e) => a + durationOf(e), 0);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+    weekEnd.setMilliseconds(-1);
+    const todayBounds = dayBounds(now);
+    const week = entries.filter(e => overlapSeconds(e, weekStart, weekEnd) > 0);
+    const todayEntries = entries.filter(e => overlapSeconds(e, todayBounds.start, todayBounds.end) > 0);
+    const sum = (list, from, to) => list.reduce((a, e) => a + (from ? overlapSeconds(e, from, to) : durationOf(e)), 0);
 
     document.querySelector('#hello').textContent = `${new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 18 ? 'Good afternoon' : 'Good evening'}, ${u.name.split(' ')[0]}.`;
-    document.querySelector('#weekTotal').textContent = hm(sum(week));
-    document.querySelector('#todayTotal').textContent = hm(sum(todayEntries));
-    document.querySelector('#projectCount').textContent = projects.length;
+    document.querySelector('#weekTotal').textContent = hm(sum(week, weekStart, weekEnd));
+    document.querySelector('#todayTotal').textContent = hm(sum(todayEntries, todayBounds.start, todayBounds.end));
+    document.querySelector('#projectCount').textContent = mainProjects(projects).length;
     document.querySelector('#entryCount').textContent = entries.length;
 
     const mains = mainProjects(projects);

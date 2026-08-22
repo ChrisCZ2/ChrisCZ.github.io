@@ -62,14 +62,14 @@
     return order;
   }
   function findEntry(id) { return cache.entries.find(e => e.id === id); }
-  function projectSegments(list, projects) {
+  function projectSegments(list, projects, range) {
     const map = new Map();
     list.forEach(e => {
       const p = projectById(projects, e.projectId);
       const rootP = p?.parentId ? projectById(projects, p.parentId) || p : p;
       const id = rootP?.id || p?.id || 'none';
       const cur = map.get(id) || { id, name: rootP?.name || p?.name || 'No project', color: rootP?.color || p?.color || '#b3aab8', seconds: 0 };
-      cur.seconds += durationOf(e);
+      cur.seconds += range ? overlapSeconds(e, range.start, range.end) : durationOf(e);
       map.set(id, cur);
     });
     return [...map.values()].filter(s => s.seconds > 0).sort((a, b) => b.seconds - a.seconds);
@@ -88,17 +88,15 @@
   }
   function entriesInWeek(entries = cache.entries) {
     const { weekStart, weekEnd } = weekWindow();
-    return entries.filter(e => {
-      const t = new Date(e.startedAt || e.startAt);
-      return t >= weekStart && t <= weekEnd;
-    });
+    return entries.filter(e => overlapSeconds(e, weekStart, weekEnd) > 0);
   }
   function paintWeekStamp() {
+    const { weekStart, weekEnd } = weekWindow();
     const weekEntries = entriesInWeek();
-    const weekSecs = weekEntries.reduce((a, e) => a + durationOf(e), 0);
+    const weekSecs = weekEntries.reduce((a, e) => a + overlapSeconds(e, weekStart, weekEnd), 0);
     const weekTotal = document.querySelector('#weekTotal');
     if (weekTotal) weekTotal.textContent = fmt(weekSecs);
-    const segs = projectSegments(weekEntries, cache.projects);
+    const segs = projectSegments(weekEntries, cache.projects, { start: weekStart, end: weekEnd });
     renderSegBar(document.querySelector('#weekSeg'), segs, weekSecs);
     const legend = document.querySelector('#weekSegLegend');
     if (legend) {
@@ -112,13 +110,13 @@
     document.querySelectorAll('.graph-dayhead').forEach((head, i) => {
       const day = weekDays()[i];
       if (!day) return;
-      const key = dayKey(day);
-      const dayList = weekEntries.filter(e => dayKey(e.startedAt) === key);
-      const total = dayList.reduce((a, e) => a + durationOf(e), 0);
+      const bounds = dayBounds(day);
+      const dayList = weekEntries.filter(e => overlapSeconds(e, bounds.start, bounds.end) > 0);
+      const total = dayList.reduce((a, e) => a + overlapSeconds(e, bounds.start, bounds.end), 0);
       const stamp = head.querySelector('span');
       if (stamp) stamp.textContent = fmt(total);
       const mini = head.querySelector('.seg-bar.mini');
-      if (mini) renderSegBar(mini, projectSegments(dayList, cache.projects), total);
+      if (mini) renderSegBar(mini, projectSegments(dayList, cache.projects, bounds), total);
     });
   }
   function paintLiveStamps() {
@@ -140,7 +138,7 @@
   function packDay(dayBlocks) {
     const items = dayBlocks.map(b => {
       const startMs = b.start.getTime();
-      const endMs = startMs + Math.max(durationOf(b), 60) * 1000;
+      const endMs = startMs + Math.max(b.daySeconds || durationOf(b), 60) * 1000;
       return { b, startMs, endMs, col: 0, cols: 1 };
     }).sort((a, c) => a.startMs - c.startMs || (c.endMs - c.startMs) - (a.endMs - a.startMs));
     const colEnds = [];
@@ -349,7 +347,17 @@
       const id = form.entryId.value;
       const entry = findEntry(id) || draftFromForm();
       if (act === 'stop') {
-        if (id && findEntry(id)?.running) await api('/api/timer/stop', { method: 'POST' });
+        const draft = draftFromForm();
+        if (id && findEntry(id)?.running) {
+          await saveEntry(id, {
+            description: draft.description,
+            projectId: draft.projectId,
+            tags: draft.tags,
+            billable: draft.billable,
+            startedAt: draft.startedAt
+          });
+          await api('/api/timer/stop', { method: 'POST' });
+        }
         stopEditorTick();
         editor.hidden = true;
         await bar.refresh();
@@ -394,8 +402,8 @@
     return `<div class="te ${e.running ? 'live' : ''}" data-id="${e.id}">
       <input type="checkbox" class="pick" data-pick="${e.id}" ${selected.has(e.id) ? 'checked' : ''}>
       <input class="te-desc" value="${esc(e.description)}" data-edit="description">
-      <button type="button" class="chip-btn" data-edit-project="${e.id}">${projectChip(p, cache.projects)}</button>
-      <button type="button" class="te-tags" data-edit-tags="${e.id}">${tags || '<span class="muted">#</span>'}</button>
+      <button type="button" class="chip-btn" data-open="${e.id}">${projectChip(p, cache.projects)}</button>
+      <button type="button" class="te-tags" data-open="${e.id}">${tags || '<span class="muted">#</span>'}</button>
       <button type="button" class="ghost-ico ${e.billable ? 'on' : ''}" data-billable="${e.id}">$</button>
       <button type="button" class="te-range" data-open="${e.id}">${fullStamp(e.startedAt, seconds, e.running)}</button>
       <input class="te-dur" value="${fmt(seconds)}" data-edit-dur="${e.id}">
@@ -428,17 +436,15 @@
     document.querySelector('#bulkCount').textContent = `${selected.size} selected`;
 
     const { weekStart, weekEnd } = weekWindow();
-    const inWeek = e => {
-      const t = new Date(e.startedAt || e.startAt);
-      return t >= weekStart && t <= weekEnd;
-    };
+    const inWeek = e => overlapSeconds(e, weekStart, weekEnd) > 0;
     const weekEntries = entries.filter(e => inWeek(e));
     const todayKey = dayKey(new Date());
-    const todayEntries = entries.filter(e => dayKey(e.startedAt) === todayKey);
-    const sum = list => list.reduce((a, e) => a + durationOf(e), 0);
+    const todayBounds = dayBounds(new Date());
+    const todayEntries = entries.filter(e => overlapSeconds(e, todayBounds.start, todayBounds.end) > 0);
+    const sum = (list, from = weekStart, to = weekEnd) => list.reduce((a, e) => a + overlapSeconds(e, from, to), 0);
     const bill = list => sum(list.filter(e => e.billable));
-    document.querySelector('#insToday').textContent = fmt(sum(todayEntries));
-    document.querySelector('#insTodayBill').textContent = `${fmt(bill(todayEntries))} billable`;
+    document.querySelector('#insToday').textContent = fmt(sum(todayEntries, todayBounds.start, todayBounds.end));
+    document.querySelector('#insTodayBill').textContent = `${fmt(sum(todayEntries.filter(e => e.billable), todayBounds.start, todayBounds.end))} billable`;
     document.querySelector('#insWeekBill').textContent = `${fmt(bill(weekEntries))} billable`;
     paintWeekStamp();
     const goal = Number(localStorage.getItem(goalKey) || 40);
@@ -483,13 +489,13 @@
       const rowH = 48;
       const now = new Date();
       const nowTop = ((now.getHours() + now.getMinutes() / 60) - startHour) * rowH;
-      const blocks = entries.map(e => ({ ...e, start: new Date(e.startedAt) }));
       root.innerHTML = `${weekEntries.length ? '' : '<p class="cal-hint">Click a time slot or press play. Use a project chip so this week stays organized.</p>'}<div class="graph" style="--hours:${hours};--row:${rowH}px">
         <div class="graph-corner"></div>
         ${days.map(day => {
           const key = dayKey(day);
-          const total = sum(weekEntries.filter(e => dayKey(e.startedAt) === key));
-          const daySegs = projectSegments(weekEntries.filter(e => dayKey(e.startedAt) === key), projects);
+          const bounds = dayBounds(day);
+          const total = sum(weekEntries, bounds.start, bounds.end);
+          const daySegs = projectSegments(weekEntries, projects, bounds);
           return `<div class="graph-dayhead${key === todayKey ? ' today' : ''}">
             <b>${day.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase()}</b>
             <em>${monthDayYear(day)}</em>
@@ -500,7 +506,11 @@
         <div class="graph-hours">${Array.from({ length: hours }, (_, i) => `<div>${startHour + i}:00</div>`).join('')}</div>
         ${days.map(day => {
           const key = dayKey(day);
-          const dayBlocks = packDay(blocks.filter(b => dayKey(b.start) === key));
+          const bounds = dayBounds(day);
+          const dayBlocks = packDay(entries.filter(e => overlapSeconds(e, bounds.start, bounds.end) > 0).map(e => {
+            const visStart = new Date(Math.max(new Date(e.startedAt).getTime(), bounds.start.getTime()));
+            return { ...e, start: visStart, daySeconds: overlapSeconds(e, bounds.start, bounds.end) };
+          }));
           return `<div class="graph-col${key === todayKey ? ' today' : ''}">
             <div class="cal-slots" data-day="${key}">
               ${Array.from({ length: hours * 2 }, (_, i) => `<button type="button" class="cal-slot half" data-hour="${startHour + i / 2}"></button>`).join('')}
@@ -509,7 +519,7 @@
               const b = item.b;
               const color = projectColor(projects, b.projectId);
               const top = Math.round(((b.start.getHours() + b.start.getMinutes() / 60) - startHour) * rowH);
-              const height = Math.max(52, Math.round((Math.max(durationOf(b), 1500) / 3600) * rowH));
+              const height = Math.max(24, Math.round((Math.max(b.daySeconds || durationOf(b), 60) / 3600) * rowH));
               if (top < -20 || top > hours * rowH) return '';
               const gap = 10;
               const left = `calc(${(item.col / item.cols) * 100}% + ${gap / 2}px)`;
@@ -565,7 +575,7 @@
       return `<section class="day-group toggl-day">
         <div class="day-head">
           <div>
-            <label class="check"><input type="checkbox" data-select-day="${key}"> <b>${dayLabel(key)}</b></label>
+            <label class="check"><input type="checkbox" data-select-day="${key}" ${list.length && list.every(e => selected.has(e.id)) ? 'checked' : ''}> <b>${dayLabel(key)}</b></label>
             <small>${monthDayYear(key)}</small>
           </div>
           <strong>${fmt(total)}</strong>
@@ -666,8 +676,8 @@
             if (entry.running) await saveEntry(entry.id, { startedAt: new Date(Date.now() - duration * 1000).toISOString(), running: true });
             else await saveEntry(entry.id, { startedAt: entry.startedAt, duration, endedAt: new Date(new Date(entry.startedAt).getTime() + duration * 1000).toISOString() });
           } else if (edge === 'start') {
-            const col = block.closest('.graph-col');
-            const next = pointToDate((col || block).getBoundingClientRect().left + 8, col.getBoundingClientRect().top + parseFloat(block.style.top));
+            const col = block.closest('.graph-col') || block.parentElement;
+            const next = col ? pointToDate(col.getBoundingClientRect().left + 8, col.getBoundingClientRect().top + parseFloat(block.style.top)) : null;
             const start = next || new Date(entry.startedAt);
             if (entry.running) await saveEntry(entry.id, { startedAt: start.toISOString(), running: true });
             else {
@@ -794,7 +804,9 @@
       await load();
     }
     if (daySel) {
-      cache.entries.filter(x => dayKey(x.startedAt) === daySel.dataset.selectDay).forEach(x => selected.add(x.id));
+      const ids = cache.entries.filter(x => dayKey(x.startedAt) === daySel.dataset.selectDay).map(x => x.id);
+      if (daySel.checked) ids.forEach(id => selected.add(id));
+      else ids.forEach(id => selected.delete(id));
       await load();
     }
   });
@@ -809,7 +821,9 @@
     }
     if (dur) {
       const entry = findEntry(dur.dataset.editDur);
-      if (entry) await saveEntry(entry.id, { startedAt: entry.startedAt, duration: parseClock(dur.value) });
+      const next = parseClock(dur.value);
+      if (entry?.running) await saveEntry(entry.id, { startedAt: new Date(Date.now() - next * 1000).toISOString(), running: true });
+      else if (entry) await saveEntry(entry.id, { startedAt: entry.startedAt, duration: next });
       await bar.refresh();
     }
     if (cell) {
@@ -820,8 +834,9 @@
       const next = Math.round((hours || 0) * 3600);
       if (!next && existing.length) {
         for (const e2 of existing) await api(`/api/entries/${e2.id}`, { method: 'DELETE' });
-      } else if (existing[0]) {
+      } else if (existing.length) {
         await saveEntry(existing[0].id, { startedAt: existing[0].startedAt, duration: next });
+        for (const extra of existing.slice(1)) await api(`/api/entries/${extra.id}`, { method: 'DELETE' });
       } else if (next) {
         await api('/api/entries', { method: 'POST', body: JSON.stringify({ description: 'Timesheet', projectId, startedAt: new Date(`${day}T09:00:00`).toISOString(), duration: next }) });
       }

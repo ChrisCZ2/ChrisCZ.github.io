@@ -43,12 +43,23 @@ function staticLogin(provider) {
   return user;
 }
 
+function claimOrphans(d, userId) {
+  let dirty = false;
+  ['projects', 'clients', 'teams', 'entries', 'schedules'].forEach(key => {
+    (d[key] || []).forEach(item => {
+      if (item && !item.userId) { item.userId = userId; dirty = true; }
+    });
+  });
+  return dirty;
+}
+
 function ensureWorkspace(d, user) {
   d.projects = d.projects || [];
   d.clients = d.clients || [];
   d.teams = d.teams || [];
   d.entries = d.entries || [];
   d.schedules = d.schedules || [];
+  if (user && claimOrphans(d, user.id)) saveDb(d);
   if (user && !d.projects.some(p => p.userId === user.id && !p.archived)) {
     d.projects.push({
       id: crypto.randomUUID(),
@@ -284,6 +295,28 @@ function durationOf(e) {
   return Number(e.duration) || 0;
 }
 
+function entryEnd(e) {
+  if (!e) return new Date();
+  if (e.running) return new Date();
+  if (e.endedAt) return new Date(e.endedAt);
+  return new Date(new Date(e.startedAt).getTime() + (Number(e.duration) || 0) * 1000);
+}
+
+function overlapSeconds(e, rangeStart, rangeEnd) {
+  if (!e?.startedAt) return 0;
+  const a = Math.max(new Date(e.startedAt).getTime(), new Date(rangeStart).getTime());
+  const b = Math.min(entryEnd(e).getTime(), new Date(rangeEnd).getTime());
+  return Math.max(0, Math.floor((b - a) / 1000));
+}
+
+function dayBounds(date) {
+  const start = asLocalDate(date);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
 function entryTimes(body = {}) {
   const startedAt = body.startedAt || new Date().toISOString();
   if (body.running) return { startedAt, duration: 0, endedAt: '', running: true };
@@ -491,7 +524,7 @@ function getSettings() {
   try {
     return Object.assign({ group: true, shortcuts: true, calStart: 7, calEnd: 22 }, JSON.parse(localStorage.getItem('trackz.settings') || '{}'));
   } catch {
-    return { group: true, shortcuts: true, calStart: 7, calEnd: 20 };
+    return { group: true, shortcuts: true, calStart: 7, calEnd: 22 };
   }
 }
 function setSettings(part) {
