@@ -21,7 +21,7 @@
       const kids = childProjects(projects, p.id);
       const tree = projectTreeIds(projects, p.id);
       const mine = entries.filter(e => tree.has(e.projectId));
-      const total = mine.reduce((a, e) => a + (e.running ? 0 : e.duration), 0);
+      const total = mine.reduce((a, e) => a + durationOf(e), 0);
       return `<article class="project-card">
         <div class="project-top">
           <span class="swatch" style="background:${esc(p.color)}"></span>
@@ -35,7 +35,7 @@
         </div>
         <div class="sub-list">
           ${kids.map(c => {
-            const ct = entries.filter(e => e.projectId === c.id).reduce((a, e) => a + (e.running ? 0 : e.duration), 0);
+            const ct = entries.filter(e => e.projectId === c.id).reduce((a, e) => a + durationOf(e), 0);
             return `<div class="sub-row">
               <i class="dot" style="background:${esc(projectColor(projects, c.id))}"></i>
               <b>${esc(c.name)}</b>

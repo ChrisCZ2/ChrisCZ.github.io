@@ -136,6 +136,7 @@ function staticApi(url, opts = {}) {
   }
   if (path === '/api/entries' && method === 'GET') return mine(d.entries).reverse();
   if (path === '/api/entries' && method === 'POST') {
+    const times = entryTimes(body);
     const e = {
       id: crypto.randomUUID(),
       userId: user.id,
@@ -143,10 +144,7 @@ function staticApi(url, opts = {}) {
       description: body.description || 'Manual entry',
       tags: Array.isArray(body.tags) ? body.tags : [],
       billable: !!body.billable,
-      startedAt: body.startedAt || new Date().toISOString(),
-      duration: Number(body.duration) || 0,
-      running: false,
-      endedAt: body.endedAt || new Date().toISOString()
+      ...times
     };
     d.entries.push(e);
     saveDb(d);
@@ -158,6 +156,15 @@ function staticApi(url, opts = {}) {
     ['description', 'projectId', 'duration', 'startedAt', 'endedAt', 'tags', 'billable', 'running'].forEach(key => {
       if (body[key] !== undefined) e[key] = body[key];
     });
+    if (e.running) {
+      e.endedAt = '';
+      e.duration = 0;
+    } else {
+      const times = entryTimes(e);
+      e.startedAt = times.startedAt;
+      e.duration = times.duration;
+      e.endedAt = times.endedAt;
+    }
     saveDb(d);
     return e;
   }
@@ -268,6 +275,24 @@ async function requireUser() {
     throw new Error('Authentication required');
   }
   return d.user;
+}
+
+function durationOf(e) {
+  if (!e) return 0;
+  if (e.running) return Math.max(0, Math.floor((Date.now() - new Date(e.startedAt).getTime()) / 1000));
+  if (e.startedAt && e.endedAt) return Math.max(0, Math.floor((new Date(e.endedAt) - new Date(e.startedAt)) / 1000));
+  return Number(e.duration) || 0;
+}
+
+function entryTimes(body = {}) {
+  const startedAt = body.startedAt || new Date().toISOString();
+  if (body.running) return { startedAt, duration: 0, endedAt: '', running: true };
+  let duration = Number(body.duration);
+  if (!Number.isFinite(duration) || duration < 0) duration = 0;
+  let endedAt = body.endedAt || '';
+  if (endedAt && !duration) duration = Math.max(0, Math.floor((new Date(endedAt) - new Date(startedAt)) / 1000));
+  if (!endedAt) endedAt = new Date(new Date(startedAt).getTime() + duration * 1000).toISOString();
+  return { startedAt, duration, endedAt, running: false };
 }
 
 function fmt(sec) {
@@ -486,6 +511,8 @@ async function saveEntry(id, patch) {
 }
 
 async function duplicateEntry(e) {
+  const duration = durationOf({ ...e, running: false }) || e.duration || 0;
+  const startedAt = new Date();
   return api('/api/entries', {
     method: 'POST',
     body: JSON.stringify({
@@ -493,18 +520,19 @@ async function duplicateEntry(e) {
       projectId: e.projectId || '',
       tags: e.tags || [],
       billable: !!e.billable,
-      startedAt: new Date().toISOString(),
-      duration: e.duration || 0
+      startedAt: startedAt.toISOString(),
+      endedAt: new Date(startedAt.getTime() + duration * 1000).toISOString(),
+      duration
     })
   });
 }
 
 async function splitEntry(e, firstSeconds) {
-  const total = e.duration || 0;
+  const total = durationOf(e);
   if (total < 600) throw new Error('Only entries over 10 minutes can be split');
   const first = Math.min(Math.max(60, firstSeconds || Math.floor(total / 2)), total - 60);
   const start = new Date(e.startedAt);
-  await saveEntry(e.id, { duration: first, startedAt: e.startedAt });
+  await saveEntry(e.id, { duration: first, startedAt: e.startedAt, endedAt: new Date(start.getTime() + first * 1000).toISOString() });
   return api('/api/entries', {
     method: 'POST',
     body: JSON.stringify({
@@ -513,6 +541,7 @@ async function splitEntry(e, firstSeconds) {
       tags: e.tags || [],
       billable: !!e.billable,
       startedAt: new Date(start.getTime() + first * 1000).toISOString(),
+      endedAt: new Date(start.getTime() + total * 1000).toISOString(),
       duration: total - first
     })
   });
@@ -676,6 +705,7 @@ async function mountTrackbar() {
   }
 
   function tick() {
+    if (document.activeElement === clock) return;
     if (active) clock.value = fmt(Math.floor((Date.now() - new Date(active.startedAt).getTime()) / 1000));
     else if (mode === 'timer') clock.value = '0:00:00';
   }

@@ -11,6 +11,7 @@
   let view = params.get('view') || 'calendar';
   let weekOffset = 0;
   let selected = new Set();
+  let create = null;
   let cache = { projects: [], entries: [], planned: [] };
   const favKey = 'trackz.favorites';
   const goalKey = 'trackz.weekGoal';
@@ -61,12 +62,6 @@
     return order;
   }
   function findEntry(id) { return cache.entries.find(e => e.id === id); }
-  function durationOf(e) {
-    if (!e) return 0;
-    if (e.running) return Math.max(0, Math.floor((Date.now() - new Date(e.startedAt).getTime()) / 1000));
-    if (e.startedAt && e.endedAt) return Math.max(0, Math.floor((new Date(e.endedAt) - new Date(e.startedAt)) / 1000));
-    return e.duration || 0;
-  }
   function projectSegments(list, projects) {
     const map = new Map();
     list.forEach(e => {
@@ -257,7 +252,7 @@
     form.tags.value = (entry.tags || []).join(', ');
     form.billable.checked = !!entry.billable;
     const start = new Date(entry.startedAt || Date.now());
-    const dur = editorRunning ? durationOf(entry) : (entry.duration || 3600);
+    const dur = durationOf(entry) || (entry.id ? 0 : 3600);
     const end = entry.endedAt ? new Date(entry.endedAt) : new Date(start.getTime() + dur * 1000);
     paintTimes(start, end, dur, editorRunning);
     const title = document.querySelector('#editorTitle');
@@ -623,7 +618,7 @@
     }
     function applyMove(entry, start) {
       if (entry.running) return saveEntry(entry.id, { startedAt: start.toISOString(), running: true });
-      return saveEntry(entry.id, { startedAt: start.toISOString(), duration: entry.duration || 1800 });
+      return saveEntry(entry.id, { startedAt: start.toISOString(), duration: durationOf(entry) || 1800 });
     }
 
     root.querySelectorAll('.cal-block').forEach(block => {
@@ -669,14 +664,14 @@
             const hours = Math.max(0.25, (origin.height + ev.clientY - origin.y) / rowH);
             const duration = Math.round(hours * 3600);
             if (entry.running) await saveEntry(entry.id, { startedAt: new Date(Date.now() - duration * 1000).toISOString(), running: true });
-            else await saveEntry(entry.id, { startedAt: entry.startedAt, duration });
+            else await saveEntry(entry.id, { startedAt: entry.startedAt, duration, endedAt: new Date(new Date(entry.startedAt).getTime() + duration * 1000).toISOString() });
           } else if (edge === 'start') {
             const col = block.closest('.graph-col');
             const next = pointToDate((col || block).getBoundingClientRect().left + 8, col.getBoundingClientRect().top + parseFloat(block.style.top));
             const start = next || new Date(entry.startedAt);
             if (entry.running) await saveEntry(entry.id, { startedAt: start.toISOString(), running: true });
             else {
-              const end = new Date(new Date(entry.startedAt).getTime() + (entry.duration || 1800) * 1000);
+              const end = new Date(new Date(entry.startedAt).getTime() + (durationOf(entry) || 1800) * 1000);
               await saveEntry(entry.id, { startedAt: start.toISOString(), duration: Math.max(60, Math.round((end - start) / 1000)) });
             }
           }
@@ -687,7 +682,6 @@
       });
     });
 
-    let create = null;
     root.querySelectorAll('.cal-slots').forEach(col => {
       col.addEventListener('pointerdown', e => {
         if (e.target.closest('.cal-block, .cal-tools, .resize')) return;
@@ -696,29 +690,30 @@
         create = { day: col.dataset.day, start: Number(slot.dataset.hour), end: Number(slot.dataset.hour) + 0.25 };
       });
     });
-    root.addEventListener('pointermove', e => {
-      if (!create) return;
-      const slot = e.target.closest('.cal-slot');
-      if (slot) create.end = Number(slot.dataset.hour) + 0.25;
-    });
-    root.addEventListener('pointerup', e => {
-      if (!create) return;
-      if (e.target.closest('.cal-block')) { create = null; return; }
-      const a = Math.min(create.start, create.end);
-      const b = Math.max(create.start, create.end);
-      const start = new Date(`${create.day}T${String(Math.floor(a)).padStart(2, '0')}:${a % 1 ? String(Math.round((a % 1) * 60)).padStart(2, '0') : '00'}:00`);
-      const duration = Math.max(900, Math.round((b - a) * 3600));
-      const projectId = bar.getProjectId() || lastProjectId(cache.projects);
-      create = null;
-      openEditor({
-        description: projectById(cache.projects, projectId)?.name || '',
-        projectId,
-        startedAt: start.toISOString(),
-        duration,
-        endedAt: new Date(start.getTime() + duration * 1000).toISOString()
-      }, e);
-    });
   }
+
+  root.addEventListener('pointermove', e => {
+    if (!create) return;
+    const slot = e.target.closest('.cal-slot');
+    if (slot) create.end = Number(slot.dataset.hour) + 0.25;
+  });
+  root.addEventListener('pointerup', e => {
+    if (!create) return;
+    if (e.target.closest('.cal-block')) { create = null; return; }
+    const a = Math.min(create.start, create.end);
+    const b = Math.max(create.start, create.end);
+    const start = new Date(`${create.day}T${String(Math.floor(a)).padStart(2, '0')}:${a % 1 ? String(Math.round((a % 1) * 60)).padStart(2, '0') : '00'}:00`);
+    const duration = Math.max(900, Math.round((b - a) * 3600));
+    const projectId = bar.getProjectId() || lastProjectId(cache.projects);
+    create = null;
+    openEditor({
+      description: projectById(cache.projects, projectId)?.name || '',
+      projectId,
+      startedAt: start.toISOString(),
+      duration,
+      endedAt: new Date(start.getTime() + duration * 1000).toISOString()
+    }, e);
+  });
 
   document.querySelector('.view-tabs').onclick = e => {
     const btn = e.target.closest('[data-view]');
