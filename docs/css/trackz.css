@@ -145,8 +145,9 @@
 .time-edit input[name="duration"]{font:600 22px 'Segoe UI',system-ui,sans-serif;letter-spacing:.3px}
 .time-edit input[name="startTime"],.time-edit input[name="endTime"]{font:600 16px 'Segoe UI',system-ui,sans-serif}
 .time-hint{margin:0;color:#7a7380}
-.modal.popover{background:#2a243033;place-items:stretch;padding:0}
-.modal.popover .modal-card{position:fixed;left:80px;top:72px;margin:0;width:min(420px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:auto;box-shadow:0 24px 60px #2a24303d}
+.modal.popover{background:#2a24304d;place-items:center;padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.modal.popover .modal-card{position:relative;left:auto;top:auto;margin:0;width:min(420px,calc(100vw - 32px));max-height:min(720px,calc(100dvh - 32px));overflow:auto;box-shadow:0 24px 60px #2a24303d}
+.modal.popover .modal-card.moved{position:fixed}
 .drag-bar{cursor:move;user-select:none;padding-right:40px}
 .cal-block{cursor:grab}
 .cal-block.dragging{cursor:grabbing;z-index:8;opacity:.95}
