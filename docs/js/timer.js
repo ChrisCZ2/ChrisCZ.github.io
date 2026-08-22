@@ -161,7 +161,17 @@
     paintTimes(start, end, dur, running);
   }
 
-  function openEditor(entry) {
+  function placeEditor(x, y) {
+    const card = document.querySelector('#editorCard');
+    if (!card) return;
+    const w = Math.min(440, window.innerWidth - 24);
+    const left = Math.max(12, Math.min((x ?? 80) + 16, window.innerWidth - w - 12));
+    const top = Math.max(12, Math.min((y ?? 80) - 12, window.innerHeight - 80));
+    card.style.left = left + 'px';
+    card.style.top = top + 'px';
+  }
+
+  function openEditor(entry, ev) {
     stopEditorTick();
     editorRunning = !!entry.running;
     form.entryId.value = entry.id || '';
@@ -176,6 +186,10 @@
     paintTimes(start, end, dur, editorRunning);
     const title = document.querySelector('#editorTitle');
     if (title) title.textContent = editorRunning ? 'Running timer' : (entry.id ? 'Edit time entry' : 'New time entry');
+    form.querySelectorAll('input,select,textarea,button').forEach(el => { el.disabled = false; el.readOnly = false; });
+    form.querySelector('[data-act="stop"]').hidden = !editorRunning;
+    form.querySelector('[data-act="continue"]').hidden = editorRunning;
+    placeEditor(ev?.clientX, ev?.clientY);
     editor.hidden = false;
     if (editorRunning) {
       openEditor.tick = setInterval(() => {
@@ -235,20 +249,65 @@
   form.endTime.addEventListener('blur', () => { if (String(form.endTime.value || '').trim()) syncEditorTime('end'); });
   form.entryDate.addEventListener('change', () => syncEditorTime('date'));
   document.querySelector('#editorClose').onclick = () => { stopEditorTick(); editor.hidden = true; };
+  editor.addEventListener('mousedown', e => {
+    if (e.target === editor) { stopEditorTick(); editor.hidden = true; }
+  });
+  (function bindEditorDrag() {
+    const card = document.querySelector('#editorCard');
+    const handle = document.querySelector('#editorTitle');
+    if (!card || !handle) return;
+    let dragWin = null;
+    handle.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      const r = card.getBoundingClientRect();
+      dragWin = { x: e.clientX - r.left, y: e.clientY - r.top };
+      handle.setPointerCapture(e.pointerId);
+    });
+    handle.addEventListener('pointermove', e => {
+      if (!dragWin) return;
+      card.style.left = Math.max(8, e.clientX - dragWin.x) + 'px';
+      card.style.top = Math.max(8, e.clientY - dragWin.y) + 'px';
+    });
+    handle.addEventListener('pointerup', () => { dragWin = null; });
+  })();
   form.querySelectorAll('[data-act]').forEach(btn => {
-    btn.onclick = async () => {
+    btn.onclick = async ev => {
+      ev.preventDefault();
+      ev.stopPropagation();
       const act = btn.dataset.act;
       const id = form.entryId.value;
       const entry = findEntry(id) || draftFromForm();
-      if (act === 'continue') { stopEditorTick(); editor.hidden = true; await startTimer(entry); await bar.refresh(); }
-      if (act === 'duplicate') { if (id) await duplicateEntry(entry); stopEditorTick(); editor.hidden = true; await bar.refresh(); }
-      if (act === 'split') {
-        if (!id) return;
-        try { await splitEntry(entry); stopEditorTick(); editor.hidden = true; await bar.refresh(); }
-        catch (err) { showToast(err.message); }
+      if (act === 'stop') {
+        if (id && findEntry(id)?.running) await api('/api/timer/stop', { method: 'POST' });
+        stopEditorTick();
+        editor.hidden = true;
+        await bar.refresh();
+        return;
       }
-      if (act === 'favorite') { toggleFav(entry); await load(); }
-      if (act === 'project' && entry.projectId) location.href = page('projects.html');
+      if (act === 'continue') {
+        if (entry.running) return;
+        stopEditorTick();
+        editor.hidden = true;
+        await startTimer(entry);
+        await bar.refresh();
+        return;
+      }
+      if (act === 'duplicate') {
+        const copy = draftFromForm();
+        await api('/api/entries', { method: 'POST', body: JSON.stringify({ ...copy, running: false }) });
+        stopEditorTick();
+        editor.hidden = true;
+        await bar.refresh();
+        return;
+      }
+      if (act === 'split') {
+        if (!id || findEntry(id)?.running) { showToast('Stop the timer before splitting'); return; }
+        try { await splitEntry(findEntry(id)); stopEditorTick(); editor.hidden = true; await bar.refresh(); }
+        catch (err) { showToast(err.message); }
+        return;
+      }
+      if (act === 'favorite') { toggleFav(draftFromForm()); await load(); return; }
+      if (act === 'project') { location.href = page('projects.html'); return; }
       if (act === 'delete') {
         stopEditorTick();
         editor.hidden = true;
@@ -388,7 +447,8 @@
                 <b>${esc(b.description || projectLabel(projects, b.projectId) || 'Time entry')}</b>
                 <small>${esc(projectLabel(projects, b.projectId) || 'No project')}</small>
                 <small>${timeRange(b.startedAt, durationOf(b), b.running)}</small>
-                ${b.running ? '' : `<i class="resize" data-resize="${b.id}"></i>`}
+                <i class="resize resize-top" data-edge="start"></i>
+                <i class="resize" data-edge="end"></i>
               </article>`;
             }).join('')}
             ${key === todayKey && nowTop > 0 && nowTop < hours * rowH ? `<div class="now-line" style="top:${nowTop}px"><i></i></div>` : ''}
@@ -452,67 +512,127 @@
   }
 
   function bindCalendar() {
-    let drag = null;
+    const rowH = 48;
+    const startHour = settings().calStart;
+    function atHour(day, hour) {
+      const snapped = Math.max(0, Math.min(23.75, Math.round(hour * 4) / 4));
+      const h = Math.floor(snapped);
+      const m = Math.round((snapped - h) * 60);
+      return new Date(`${day}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`);
+    }
+    function pointToDate(x, y) {
+      const cols = [...root.querySelectorAll('.graph-col')];
+      let col = cols.find(c => {
+        const r = c.getBoundingClientRect();
+        return x >= r.left && x <= r.right;
+      });
+      if (!col && cols.length) {
+        col = cols.reduce((best, c) => {
+          const r = c.getBoundingClientRect();
+          const dist = x < r.left ? r.left - x : x > r.right ? x - r.right : 0;
+          return !best || dist < best.dist ? { c, dist } : best;
+        }, null).c;
+      }
+      const day = col?.querySelector('.cal-slots')?.dataset.day;
+      if (!day) return null;
+      return atHour(day, startHour + (y - col.getBoundingClientRect().top) / rowH);
+    }
+    function applyMove(entry, start) {
+      if (entry.running) return saveEntry(entry.id, { startedAt: start.toISOString(), running: true });
+      return saveEntry(entry.id, { startedAt: start.toISOString(), duration: entry.duration || 1800 });
+    }
+
     root.querySelectorAll('.cal-block').forEach(block => {
-      block.addEventListener('mousedown', e => e.stopPropagation());
-      block.addEventListener('click', e => {
-        if (e.target.closest('[data-delete], .resize')) return;
+      block.addEventListener('pointerdown', e => {
+        if (e.button !== 0 || e.target.closest('.cal-tools')) return;
         const entry = findEntry(block.dataset.id);
-        if (entry) openEditor(entry);
+        if (!entry) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const edge = e.target.closest('[data-edge]')?.dataset.edge || 'move';
+        const origin = { x: e.clientX, y: e.clientY, top: parseFloat(block.style.top) || 0, height: parseFloat(block.style.height) || 52 };
+        let moved = false;
+        const onMove = ev => {
+          if (Math.hypot(ev.clientX - origin.x, ev.clientY - origin.y) > 5) moved = true;
+          if (!moved) return;
+          block.classList.add('dragging');
+          if (edge === 'move') {
+            const next = pointToDate(ev.clientX, ev.clientY);
+            if (!next) return;
+            block.style.top = Math.max(0, ((next.getHours() + next.getMinutes() / 60) - startHour) * rowH) + 'px';
+            const col = [...root.querySelectorAll('.graph-col')].find(c => {
+              const r = c.getBoundingClientRect();
+              return ev.clientX >= r.left && ev.clientX <= r.right;
+            });
+            if (col && block.parentElement !== col) col.appendChild(block);
+          } else if (edge === 'end') {
+            block.style.height = Math.max(36, origin.height + ev.clientY - origin.y) + 'px';
+          } else if (edge === 'start') {
+            const dy = ev.clientY - origin.y;
+            block.style.top = Math.max(0, origin.top + dy) + 'px';
+            block.style.height = Math.max(36, origin.height - dy) + 'px';
+          }
+        };
+        const onUp = async ev => {
+          document.removeEventListener('pointermove', onMove);
+          document.removeEventListener('pointerup', onUp);
+          block.classList.remove('dragging');
+          if (!moved) { openEditor(entry, ev); return; }
+          if (edge === 'move') {
+            const next = pointToDate(ev.clientX, ev.clientY);
+            if (next) await applyMove(entry, next);
+          } else if (edge === 'end') {
+            const hours = Math.max(0.25, (origin.height + ev.clientY - origin.y) / rowH);
+            const duration = Math.round(hours * 3600);
+            if (entry.running) await saveEntry(entry.id, { startedAt: new Date(Date.now() - duration * 1000).toISOString(), running: true });
+            else await saveEntry(entry.id, { startedAt: entry.startedAt, duration });
+          } else if (edge === 'start') {
+            const col = block.closest('.graph-col');
+            const next = pointToDate((col || block).getBoundingClientRect().left + 8, col.getBoundingClientRect().top + parseFloat(block.style.top));
+            const start = next || new Date(entry.startedAt);
+            if (entry.running) await saveEntry(entry.id, { startedAt: start.toISOString(), running: true });
+            else {
+              const end = new Date(new Date(entry.startedAt).getTime() + (entry.duration || 1800) * 1000);
+              await saveEntry(entry.id, { startedAt: start.toISOString(), duration: Math.max(60, Math.round((end - start) / 1000)) });
+            }
+          }
+          await bar.refresh();
+        };
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
       });
     });
+
+    let create = null;
     root.querySelectorAll('.cal-slots').forEach(col => {
-      col.addEventListener('mousedown', e => {
+      col.addEventListener('pointerdown', e => {
         if (e.target.closest('.cal-block, .cal-tools, .resize')) return;
         const slot = e.target.closest('.cal-slot');
         if (!slot || e.button !== 0) return;
-        drag = { day: col.dataset.day, start: Number(slot.dataset.hour), end: Number(slot.dataset.hour) + 0.5 };
+        create = { day: col.dataset.day, start: Number(slot.dataset.hour), end: Number(slot.dataset.hour) + 0.25 };
       });
     });
-    root.addEventListener('mousemove', e => {
-      if (!drag) return;
+    root.addEventListener('pointermove', e => {
+      if (!create) return;
       const slot = e.target.closest('.cal-slot');
-      if (slot) drag.end = Number(slot.dataset.hour) + 0.5;
+      if (slot) create.end = Number(slot.dataset.hour) + 0.25;
     });
-    root.addEventListener('mouseup', e => {
-      if (!drag) return;
-      if (e.target.closest('.cal-block, .cal-tools')) { drag = null; return; }
-      const a = Math.min(drag.start, drag.end);
-      const b = Math.max(drag.start, drag.end);
-      const start = new Date(`${drag.day}T${String(Math.floor(a)).padStart(2, '0')}:${a % 1 ? '30' : '00'}:00`);
-      const duration = Math.max(1800, Math.round((b - a) * 3600));
+    root.addEventListener('pointerup', e => {
+      if (!create) return;
+      if (e.target.closest('.cal-block')) { create = null; return; }
+      const a = Math.min(create.start, create.end);
+      const b = Math.max(create.start, create.end);
+      const start = new Date(`${create.day}T${String(Math.floor(a)).padStart(2, '0')}:${a % 1 ? String(Math.round((a % 1) * 60)).padStart(2, '0') : '00'}:00`);
+      const duration = Math.max(900, Math.round((b - a) * 3600));
       const projectId = bar.getProjectId() || lastProjectId(cache.projects);
-      drag = null;
+      create = null;
       openEditor({
         description: projectById(cache.projects, projectId)?.name || '',
         projectId,
         startedAt: start.toISOString(),
         duration,
         endedAt: new Date(start.getTime() + duration * 1000).toISOString()
-      });
-    });
-    root.querySelectorAll('[data-resize]').forEach(handle => {
-      handle.addEventListener('mousedown', e => {
-        e.stopPropagation();
-        const id = handle.dataset.resize;
-        const entry = findEntry(id);
-        if (!entry || entry.running) return;
-        const startY = e.clientY;
-        const startDur = entry.duration;
-        const move = ev => {
-          handle.dataset.next = String(Math.max(900, startDur + Math.round((ev.clientY - startY) / 44 * 3600)));
-        };
-        const up = async () => {
-          document.removeEventListener('mousemove', move);
-          document.removeEventListener('mouseup', up);
-          if (handle.dataset.next) {
-            await saveEntry(id, { startedAt: entry.startedAt, duration: Number(handle.dataset.next) });
-            await bar.refresh();
-          }
-        };
-        document.addEventListener('mousemove', move);
-        document.addEventListener('mouseup', up);
-      });
+      }, e);
     });
   }
 
@@ -567,7 +687,7 @@
     const expand = e.target.closest('[data-expand]');
     if (expand && !e.target.closest('button,input,.group-kids')) expand.classList.toggle('open');
     const open = e.target.closest('[data-open]');
-    if (open) { const entry = findEntry(open.dataset.open); if (entry) openEditor(entry); }
+    if (open) { const entry = findEntry(open.dataset.open); if (entry) openEditor(entry, e); }
     const play = e.target.closest('[data-continue]');
     const del = e.target.closest('[data-delete]');
     const bill = e.target.closest('[data-billable]');

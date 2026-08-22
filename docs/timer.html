@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timer — Trackz</title>
-  <link rel="stylesheet" href="css/trackz.css?v=6">
+  <link rel="stylesheet" href="css/trackz.css?v=7">
   <style>[hidden],.hidden{display:none!important}</style>
 </head>
 <body class="app timer-page">
@@ -86,10 +86,10 @@
       </aside>
     </div>
   </div>
-  <div id="editor" class="modal" hidden>
-    <div class="modal-card editor">
-      <button class="close" id="editorClose">×</button>
-      <h2 id="editorTitle">Edit time entry</h2>
+  <div id="editor" class="modal popover" hidden>
+    <div class="modal-card editor" id="editorCard">
+      <button class="close" id="editorClose" type="button">×</button>
+      <h2 id="editorTitle" class="drag-bar">Edit time entry</h2>
       <form id="editorForm">
         <input type="hidden" name="entryId">
         <label>Description<input name="description" placeholder="What did you work on?"></label>
@@ -107,6 +107,7 @@
         </div>
         <div class="editor-actions">
           <button class="btn" type="submit">Save</button>
+          <button class="btn ghost" type="button" data-act="stop">Stop</button>
           <button class="btn ghost" type="button" data-act="continue">Continue</button>
           <button class="btn ghost" type="button" data-act="duplicate">Duplicate</button>
           <button class="btn ghost" type="button" data-act="split">Split</button>
@@ -145,7 +146,7 @@
       </ul>
     </div>
   </div>
-  <script src="js/app.js?v=6"></script>
-  <script src="js/timer.js?v=6"></script>
+  <script src="js/app.js?v=7"></script>
+  <script src="js/timer.js?v=7"></script>
 </body>
 </html>
