@@ -157,7 +157,7 @@ kbd{background:#f3f1eb;border:1px solid var(--line);border-radius:6px;padding:2p
 .sheet-cell{width:100%;border:0;background:transparent;text-align:center;font:13px 'DM Mono'}
 .sheet .totals{font-weight:700;background:#f7f6f2}
 .muted{color:#bbb}
-.hidden{display:none!important}
+[hidden],.hidden,.modal[hidden],.bulk-bar[hidden]{display:none!important}
 .app{--ink:#2a2430;--muted:#7a7380;--line:#e7e1ea;--paper:#f6f3f8;--white:#fff;--accent:#c45db8;--green:#2f9e6d;background:#f6f3f8;color:#2a2430}
 .app aside{background:#fff;border-right:1px solid #ece6ef;color:#5c5563}
 .app .side a{color:#7a7380}
@@ -195,7 +195,9 @@ kbd{background:#f3f1eb;border:1px solid var(--line);border-radius:6px;padding:2p
 .graph-dayhead.today span{color:#c45db8}
 .graph-hours{border-right:1px solid #f0ebf2}
 .graph-hours div{height:var(--row,48px);color:#b3aab8;font:11px 'DM Mono';padding:4px 6px 0 0;text-align:right}
-.graph-col{position:relative;border-right:1px solid #f0ebf2;min-height:calc(var(--hours,15) * var(--row,48px));background-image:linear-gradient(#f3eef6 1px,transparent 1px);background-size:100% var(--row,48px)}
+.graph-col{position:relative;border-right:1px solid #f0ebf2;min-height:calc(var(--hours,15) * var(--row,48px));background-image:linear-gradient(#e4dce8 1px,transparent 1px);background-size:100% var(--row,48px)}
+.cal-hint{margin:0 0 12px;color:#7a7380;font-size:13px}
+.cal-block.live{box-shadow:0 0 0 2px #fff,0 8px 16px #c45db833}
 .graph-col.today{background-color:#c45db80a}
 .cal-slots{position:absolute;inset:0;display:grid}
 .now-line{position:absolute;left:0;right:0;height:0;border-top:2px solid #c45db8;z-index:3;pointer-events:none}
@@ -208,3 +210,4 @@ kbd{background:#f3f1eb;border:1px solid var(--line);border-radius:6px;padding:2p
 .proj-chip{border:1px solid #ece6ef;background:#fff;border-radius:999px;padding:8px 12px;display:inline-flex;align-items:center;gap:8px;cursor:pointer;font:600 13px inherit}
 .proj-chip span{color:#7a7380;font:12px 'DM Mono'}
 .proj-chip.add{color:#c45db8}
+.proj-chip.on{border-color:#c45db8;background:#f8eef6}

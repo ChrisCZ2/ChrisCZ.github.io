@@ -1,7 +1,8 @@
 (async () => {
   const user = await requireUser();
+  if (!user) throw new Error('Workspace is not ready');
   const chip = document.querySelector('#userChip');
-  if (chip) chip.textContent = user.name;
+  if (chip) chip.textContent = user.name || 'My workspace';
   const bar = await mountTrackbar();
   const root = document.querySelector('#viewRoot');
   const editor = document.querySelector('#editor');
@@ -60,11 +61,17 @@
     return order;
   }
   function findEntry(id) { return cache.entries.find(e => e.id === id); }
+  function durationOf(e) {
+    if (!e) return 0;
+    if (e.running) return Math.max(0, Math.floor((Date.now() - new Date(e.startedAt).getTime()) / 1000));
+    return e.duration || 0;
+  }
 
   function openEditor(entry) {
-    form.id.value = entry.id || '';
+    form.entryId.value = entry.id || '';
     form.description.value = entry.description || '';
-    form.projectId.innerHTML = '<option value="">No project</option>' + cache.projects.map(p => `<option value="${p.id}" ${p.id === entry.projectId ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+    const selectedProject = entry.projectId || bar.getProjectId() || lastProjectId(cache.projects);
+    form.projectId.innerHTML = '<option value="">No project</option>' + cache.projects.map(p => `<option value="${p.id}" ${p.id === selectedProject ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
     form.tags.value = (entry.tags || []).join(', ');
     form.billable.checked = !!entry.billable;
     const start = new Date(entry.startedAt || Date.now());
@@ -92,8 +99,9 @@
 
   async function persistEditor() {
     const draft = draftFromForm();
-    if (form.id.value) await saveEntry(form.id.value, draft);
+    if (form.entryId.value) await saveEntry(form.entryId.value, draft);
     else await api('/api/entries', { method: 'POST', body: JSON.stringify(draft) });
+    if (draft.projectId) rememberProject(draft.projectId);
     editor.hidden = true;
     await bar.refresh();
   }
@@ -108,7 +116,7 @@
   form.querySelectorAll('[data-act]').forEach(btn => {
     btn.onclick = async () => {
       const act = btn.dataset.act;
-      const id = form.id.value;
+      const id = form.entryId.value;
       const entry = findEntry(id) || draftFromForm();
       if (act === 'continue') { editor.hidden = true; await startTimer(entry); await bar.refresh(); }
       if (act === 'duplicate') { if (id) await duplicateEntry(entry); editor.hidden = true; await bar.refresh(); }
@@ -162,11 +170,7 @@
   }
 
   async function load() {
-    let [projects, entries, planned] = await Promise.all([api('/api/projects'), api('/api/entries'), api('/api/schedule')]);
-    if (!projects.length) {
-      const starter = await api('/api/projects', { method: 'POST', body: JSON.stringify({ name: 'General', color: '#e57cd8' }) });
-      projects = [starter];
-    }
+    const [projects, entries, planned] = await Promise.all([api('/api/projects'), api('/api/entries'), api('/api/schedule')]);
     cache = { projects, entries, planned };
     const days = weekDays();
     const cfg = settings();
@@ -184,10 +188,10 @@
       const t = new Date(e.startedAt || e.startAt);
       return t >= weekStart && t <= weekEnd;
     };
-    const weekEntries = entries.filter(e => inWeek(e) && !e.running);
+    const weekEntries = entries.filter(e => inWeek(e));
     const todayKey = dayKey(new Date());
-    const todayEntries = entries.filter(e => dayKey(e.startedAt) === todayKey && !e.running);
-    const sum = list => list.reduce((a, e) => a + (e.duration || 0), 0);
+    const todayEntries = entries.filter(e => dayKey(e.startedAt) === todayKey);
+    const sum = list => list.reduce((a, e) => a + durationOf(e), 0);
     const bill = list => sum(list.filter(e => e.billable));
     document.querySelector('#insToday').textContent = fmt(sum(todayEntries));
     document.querySelector('#insTodayBill').textContent = `${fmt(bill(todayEntries))} billable`;
@@ -208,7 +212,7 @@
       strip.innerHTML = projects.length
         ? projects.map(p => {
           const total = sum(weekEntries.filter(e => e.projectId === p.id));
-          return `<button type="button" class="proj-chip" data-start-project="${p.id}">
+          return `<button type="button" class="proj-chip${p.id === (bar.getProjectId() || lastProjectId(projects)) ? ' on' : ''}" data-start-project="${p.id}">
             <i class="dot" style="background:${esc(p.color)}"></i>
             <b>${esc(p.name)}</b>
             <span>${hm(total)}</span>
@@ -224,8 +228,8 @@
       const rowH = 48;
       const now = new Date();
       const nowTop = ((now.getHours() + now.getMinutes() / 60) - startHour) * rowH;
-      const blocks = entries.filter(e => !e.running).map(e => ({ ...e, start: new Date(e.startedAt) }));
-      root.innerHTML = `<div class="graph" style="--hours:${hours};--row:${rowH}px">
+      const blocks = entries.map(e => ({ ...e, start: new Date(e.startedAt) }));
+      root.innerHTML = `${weekEntries.length ? '' : '<p class="cal-hint">Click a time slot or press play. Use a project chip so this week stays organized.</p>'}<div class="graph" style="--hours:${hours};--row:${rowH}px">
         <div class="graph-corner"></div>
         ${days.map(day => {
           const key = dayKey(day);
@@ -243,12 +247,12 @@
             ${dayBlocks.map(b => {
               const p = projectById(projects, b.projectId);
               const top = ((b.start.getHours() + b.start.getMinutes() / 60) - startHour) * rowH;
-              const height = Math.max(22, ((b.duration || 1800) / 3600) * rowH);
+              const height = Math.max(26, (Math.max(durationOf(b), 900) / 3600) * rowH);
               if (top < -20 || top > hours * rowH) return '';
-              return `<div class="cal-block" data-open="${b.id}" draggable="true" data-id="${b.id}" style="top:${Math.max(0, top)}px;height:${height}px;background:${p ? p.color : '#e57cd8'}">
-                <b>${esc(b.description || 'Time entry')}</b>
-                <small>${timeRange(b.startedAt, b.duration, false)}</small>
-                <i class="resize" data-resize="${b.id}"></i>
+              return `<div class="cal-block${b.running ? ' live' : ''}" data-open="${b.id}" draggable="${b.running ? 'false' : 'true'}" data-id="${b.id}" style="top:${Math.max(0, top)}px;height:${height}px;background:${p ? p.color : '#c45db8'}">
+                <b>${esc(b.description || p?.name || 'Time entry')}</b>
+                <small>${timeRange(b.startedAt, durationOf(b), b.running)}</small>
+                ${b.running ? '' : `<i class="resize" data-resize="${b.id}"></i>`}
               </div>`;
             }).join('')}
             ${key === todayKey && nowTop > 0 && nowTop < hours * rowH ? `<div class="now-line" style="top:${nowTop}px"><i></i></div>` : ''}
@@ -322,14 +326,27 @@
       const slot = e.target.closest('.cal-slot');
       if (slot) drag.end = Number(slot.dataset.hour) + 0.5;
     });
-    root.addEventListener('mouseup', () => {
+    root.addEventListener('mouseup', async () => {
       if (!drag) return;
       const a = Math.min(drag.start, drag.end);
       const b = Math.max(drag.start, drag.end);
       const start = new Date(`${drag.day}T${String(Math.floor(a)).padStart(2, '0')}:${a % 1 ? '30' : '00'}:00`);
       const duration = Math.max(1800, Math.round((b - a) * 3600));
       drag = null;
-      openEditor({ description: '', startedAt: start.toISOString(), duration, endedAt: new Date(start.getTime() + duration * 1000).toISOString() });
+      const projectId = bar.getProjectId() || lastProjectId(cache.projects);
+      const created = await api('/api/entries', {
+        method: 'POST',
+        body: JSON.stringify({
+          description: projectById(cache.projects, projectId)?.name || 'Tracked time',
+          projectId,
+          startedAt: start.toISOString(),
+          duration,
+          endedAt: new Date(start.getTime() + duration * 1000).toISOString()
+        })
+      });
+      if (projectId) rememberProject(projectId);
+      await bar.refresh();
+      openEditor(created);
     });
     root.querySelectorAll('.cal-block').forEach(block => {
       block.addEventListener('dragstart', e => { e.dataTransfer.setData('text', block.dataset.id); });
@@ -515,6 +532,7 @@
     const btn = e.target.closest('[data-start-project]');
     if (!btn) return;
     const p = projectById(cache.projects, btn.dataset.startProject);
+    rememberProject(btn.dataset.startProject);
     await startTimer({ description: p?.name || 'Tracked time', projectId: btn.dataset.startProject });
     await bar.refresh();
   });
@@ -555,4 +573,8 @@
 
   document.addEventListener('trackz:refresh', load);
   await load();
-})();
+})().catch(err => {
+  const root = document.querySelector('#viewRoot');
+  if (root) root.innerHTML = `<div class="empty-timer"><h2>Couldn’t load the timer</h2><p>${esc(err.message || err)}</p></div>`;
+  console.error(err);
+});

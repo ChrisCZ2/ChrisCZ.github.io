@@ -43,26 +43,58 @@ function staticLogin(provider) {
   return user;
 }
 
+function ensureWorkspace(d, user) {
+  d.projects = d.projects || [];
+  d.clients = d.clients || [];
+  d.teams = d.teams || [];
+  d.entries = d.entries || [];
+  d.schedules = d.schedules || [];
+  if (user && !d.projects.some(p => p.userId === user.id && !p.archived)) {
+    d.projects.push({
+      id: crypto.randomUUID(),
+      userId: user.id,
+      name: 'General',
+      client: '',
+      color: '#c45db8',
+      description: '',
+      billable: false,
+      createdAt: new Date().toISOString(),
+      archived: false
+    });
+    saveDb(d);
+  }
+  return d;
+}
+
+function lastProjectId(projects) {
+  const saved = localStorage.getItem('trackz.lastProject') || '';
+  if (saved && (projects || []).some(p => p.id === saved)) return saved;
+  return (projects || []).find(p => !p.archived)?.id || '';
+}
+
+function rememberProject(id) {
+  if (id) localStorage.setItem('trackz.lastProject', id);
+}
+
 function staticApi(url, opts = {}) {
   const method = (opts.method || 'GET').toUpperCase();
   const body = opts.body ? JSON.parse(opts.body) : {};
   const path = url.split('?')[0];
-  const user = currentUser();
+  let user = currentUser();
   const parts = path.split('/').filter(Boolean);
 
-  if (path === '/api/auth/me') return { user };
+  if (path === '/api/auth/me') {
+    if (!user) user = staticLogin('local');
+    return { user };
+  }
   if (path === '/api/auth/logout' && method === 'POST') {
     localStorage.removeItem('trackz.user');
     return { ok: true };
   }
   if (path === '/api/health') return { ok: true, app: 'Trackz', static: true };
-  if (!user) {
-    location.href = page('login.html');
-    throw new Error('Unauthorized');
-  }
+  if (!user) user = staticLogin('local');
 
-  const d = loadDb();
-  d.schedules = d.schedules || [];
+  const d = ensureWorkspace(loadDb(), user);
   const mine = arr => (arr || []).filter(x => x.userId === user.id);
 
   if (path === '/api/dashboard') {
@@ -198,19 +230,29 @@ function staticApi(url, opts = {}) {
 
 async function api(url, opts = {}) {
   if (window.TRACKZ_STATIC) return staticApi(url, opts);
-  const r = await fetch(url, {
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
-    ...opts
-  });
-  let d = {};
-  try { d = await r.json(); } catch {}
-  if (r.status === 401 && !url.includes('/api/auth/')) {
-    location.href = page('login.html');
-    throw new Error('Unauthorized');
+  try {
+    const r = await fetch(url, {
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+      ...opts
+    });
+    let d = {};
+    try { d = await r.json(); } catch {}
+    if (r.status === 404 && url.startsWith('/api/')) {
+      window.TRACKZ_STATIC = true;
+      return staticApi(url, opts);
+    }
+    if (r.status === 401 && !url.includes('/api/auth/')) {
+      location.href = page('login.html');
+      throw new Error('Unauthorized');
+    }
+    if (!r.ok) throw new Error(d.error || 'Request failed');
+    return d;
+  } catch (err) {
+    if (err.message === 'Unauthorized' || err.message === 'Authentication required') throw err;
+    window.TRACKZ_STATIC = true;
+    return staticApi(url, opts);
   }
-  if (!r.ok) throw new Error(d.error || 'Request failed');
-  return d;
 }
 
 async function requireUser() {
@@ -233,8 +275,10 @@ function fmt(sec) {
 }
 
 function hm(sec) {
+  sec = Math.max(0, Math.floor(sec || 0));
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
-  if (!h && !m) return '0 min';
+  if (!sec) return '0 min';
+  if (!h && !m) return '< 1 min';
   if (!h) return `${m} min`;
   return m ? `${h}h ${m}m` : `${h}h`;
 }
@@ -380,6 +424,11 @@ function toLocalInput(date) {
 }
 
 async function startTimer({ description, projectId, tags, billable } = {}) {
+  if (!projectId) {
+    const projects = await api('/api/projects');
+    projectId = lastProjectId(projects);
+  }
+  if (projectId) rememberProject(projectId);
   return api('/api/timer/start', {
     method: 'POST',
     body: JSON.stringify({
@@ -421,10 +470,11 @@ async function mountTrackbar() {
   let projects = await api('/api/projects');
   let entries = await api('/api/entries');
   let active = entries.find(e => e.running) || null;
-  let projectId = active?.projectId || '';
+  let projectId = active?.projectId || lastProjectId(projects);
   let tags = [...(active?.tags || [])];
   let billable = !!active?.billable;
   let mode = 'timer';
+  if (projectId) rememberProject(projectId);
 
   const desc = bar.querySelector('#barDesc');
   const clock = bar.querySelector('#barClock');
@@ -506,14 +556,17 @@ async function mountTrackbar() {
     else if (mode === 'timer') clock.value = '0:00:00';
   }
 
-  async function refresh() {
+  async function refresh(opts = {}) {
     projects = await api('/api/projects');
     entries = await api('/api/entries');
     active = entries.find(e => e.running) || null;
+    if (active?.projectId) projectId = active.projectId;
+    else if (!projects.some(p => p.id === projectId)) projectId = lastProjectId(projects);
+    if (projectId) rememberProject(projectId);
     renderMenu();
     syncBar();
     tick();
-    document.dispatchEvent(new CustomEvent('trackz:refresh'));
+    if (!opts.silent) document.dispatchEvent(new CustomEvent('trackz:refresh'));
   }
 
   renderMenu();
@@ -543,6 +596,7 @@ async function mountTrackbar() {
     const item = e.target.closest('.menu-item');
     if (!item) return;
     projectId = item.dataset.id || '';
+    rememberProject(projectId);
     const picked = projectById(projects, projectId);
     if (picked?.billable) billable = true;
     if (active) await api(`/api/entries/${active.id}`, { method: 'PATCH', body: JSON.stringify({ projectId, billable }) });
@@ -562,6 +616,7 @@ async function mountTrackbar() {
     if (!name) return;
     const p = await api('/api/projects', { method: 'POST', body: JSON.stringify({ name, color, client: e.target.client.value, billable: e.target.billable.checked }) });
     projectId = p.id;
+    rememberProject(projectId);
     if (p.billable) billable = true;
     closeMenus();
     e.target.reset();
@@ -694,8 +749,13 @@ document.addEventListener('DOMContentLoaded', () => {
   if (l) {
     l.onclick = async e => {
       e.preventDefault();
-      if (window.TRACKZ_STATIC) localStorage.removeItem('trackz.user');
-      else await fetch('/api/auth/logout', { method: 'POST' });
+      if (window.TRACKZ_STATIC) {
+        localStorage.removeItem('trackz.user');
+        staticLogin('local');
+        location.href = page('timer.html');
+        return;
+      }
+      await fetch('/api/auth/logout', { method: 'POST' });
       location.href = page('index.html');
     };
   }
