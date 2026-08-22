@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timer — Trackz</title>
-  <link rel="stylesheet" href="css/trackz.css?v=3">
+  <link rel="stylesheet" href="css/trackz.css?v=4">
   <style>[hidden],.hidden{display:none!important}</style>
 </head>
 <body class="app timer-page">
   <aside>
-    <a class="brand" href="timer.html">trackz<span>.</span></a>
+    <a class="brand" href="index.html">trackz<span>.</span></a>
     <p class="nav-label">Track</p>
     <nav class="side tight">
       <a href="dashboard.html">Overview</a>
@@ -89,7 +89,7 @@
   <div id="editor" class="modal" hidden>
     <div class="modal-card editor">
       <button class="close" id="editorClose">×</button>
-      <h2>Edit time entry</h2>
+      <h2 id="editorTitle">Edit time entry</h2>
       <form id="editorForm">
         <input type="hidden" name="entryId">
         <label>Description<input name="description" placeholder="What did you work on?"></label>
@@ -141,7 +141,7 @@
       </ul>
     </div>
   </div>
-  <script src="js/app.js?v=3"></script>
-  <script src="js/timer.js?v=3"></script>
+  <script src="js/app.js?v=4"></script>
+  <script src="js/timer.js?v=4"></script>
 </body>
 </html>

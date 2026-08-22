@@ -202,7 +202,13 @@ kbd{background:#f3f1eb;border:1px solid var(--line);border-radius:6px;padding:2p
 .cal-slots{position:absolute;inset:0;display:grid}
 .now-line{position:absolute;left:0;right:0;height:0;border-top:2px solid #c45db8;z-index:3;pointer-events:none}
 .now-line i{position:absolute;left:-5px;top:-5px;width:10px;height:10px;border-radius:50%;background:#c45db8}
-.cal-block{position:absolute;left:6px;right:6px;border-radius:8px;color:#fff;padding:6px 8px;overflow:hidden;font-size:11px;z-index:2;box-shadow:0 8px 16px #2a243014}
+.cal-block{position:absolute;left:6px;right:auto;border-radius:8px;color:#fff;padding:8px 10px 10px;overflow:hidden;font-size:11px;z-index:2;box-shadow:0 8px 16px #2a243014;display:flex;flex-direction:column;gap:2px;cursor:pointer;box-sizing:border-box}
+.cal-block b,.cal-block small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25;pointer-events:none}
+.cal-block small{opacity:.88}
+.cal-tools{position:absolute;top:4px;right:4px;display:none;gap:4px;z-index:4}
+.cal-block:hover{z-index:6;overflow:visible}
+.cal-block:hover .cal-tools{display:flex}
+.cal-tools button{position:static;width:22px;height:22px;border:0;border-radius:6px;background:#0006;color:#fff;cursor:pointer;font-size:11px;line-height:22px;padding:0}
 .bulk-bar{background:#2a2430}
 .empty-timer h2{color:#2a2430}
 .nav-label{color:#b3aab8}

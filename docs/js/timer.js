@@ -66,8 +66,39 @@
     if (e.running) return Math.max(0, Math.floor((Date.now() - new Date(e.startedAt).getTime()) / 1000));
     return e.duration || 0;
   }
+  function packDay(dayBlocks) {
+    const items = dayBlocks.map(b => {
+      const startMs = b.start.getTime();
+      const endMs = startMs + Math.max(durationOf(b), 60) * 1000;
+      return { b, startMs, endMs, col: 0, cols: 1 };
+    }).sort((a, c) => a.startMs - c.startMs || (c.endMs - c.startMs) - (a.endMs - a.startMs));
+    const colEnds = [];
+    items.forEach(item => {
+      let col = 0;
+      while (col < colEnds.length && colEnds[col] > item.startMs + 1000) col += 1;
+      item.col = col;
+      colEnds[col] = item.endMs;
+    });
+    items.forEach(item => {
+      const peers = items.filter(o => o.startMs < item.endMs && o.endMs > item.startMs);
+      item.cols = peers.reduce((max, o) => Math.max(max, o.col + 1), 1);
+    });
+    return items;
+  }
+  async function removeEntry(entry) {
+    if (!entry?.id) return;
+    const copy = { ...entry };
+    await api(`/api/entries/${entry.id}`, { method: 'DELETE' });
+    showToast(copy.running ? 'Timer deleted' : 'Time entry deleted', 'Undo', async () => {
+      if (copy.running) await startTimer(copy);
+      else await api('/api/entries', { method: 'POST', body: JSON.stringify(copy) });
+      await bar.refresh();
+    });
+    await bar.refresh();
+  }
 
   function openEditor(entry) {
+    const running = !!entry.running;
     form.entryId.value = entry.id || '';
     form.description.value = entry.description || '';
     const selectedProject = entry.projectId || bar.getProjectId() || lastProjectId(cache.projects);
@@ -75,11 +106,15 @@
     form.tags.value = (entry.tags || []).join(', ');
     form.billable.checked = !!entry.billable;
     const start = new Date(entry.startedAt || Date.now());
-    const dur = entry.duration || 3600;
+    const dur = running ? durationOf(entry) : (entry.duration || 3600);
     const end = entry.endedAt ? new Date(entry.endedAt) : new Date(start.getTime() + dur * 1000);
     form.startedAt.value = toLocalInput(start);
-    form.endedAt.value = toLocalInput(end);
+    form.endedAt.disabled = running;
+    form.endedAt.value = running ? '' : toLocalInput(end);
+    form.duration.readOnly = running;
     form.duration.value = fmt(dur);
+    const title = document.querySelector('#editorTitle');
+    if (title) title.textContent = running ? 'Running timer' : (entry.id ? 'Edit time entry' : 'New time entry');
     editor.hidden = false;
   }
 
@@ -98,10 +133,24 @@
   }
 
   async function persistEditor() {
-    const draft = draftFromForm();
-    if (form.entryId.value) await saveEntry(form.entryId.value, draft);
-    else await api('/api/entries', { method: 'POST', body: JSON.stringify(draft) });
-    if (draft.projectId) rememberProject(draft.projectId);
+    const id = form.entryId.value;
+    const current = findEntry(id);
+    if (current?.running) {
+      const projectId = form.projectId.value;
+      await saveEntry(id, {
+        description: form.description.value.trim() || 'Tracked time',
+        projectId,
+        tags: form.tags.value.split(',').map(s => s.trim()).filter(Boolean),
+        billable: form.billable.checked,
+        startedAt: new Date(form.startedAt.value).toISOString()
+      });
+      if (projectId) rememberProject(projectId);
+    } else {
+      const draft = draftFromForm();
+      if (id) await saveEntry(id, draft);
+      else await api('/api/entries', { method: 'POST', body: JSON.stringify(draft) });
+      if (draft.projectId) rememberProject(draft.projectId);
+    }
     editor.hidden = true;
     await bar.refresh();
   }
@@ -129,15 +178,7 @@
       if (act === 'project' && entry.projectId) location.href = page('projects.html');
       if (act === 'delete') {
         editor.hidden = true;
-        if (id) {
-          const copy = { ...entry };
-          await api(`/api/entries/${id}`, { method: 'DELETE' });
-          showToast('Time entry deleted', 'Undo', async () => {
-            await api('/api/entries', { method: 'POST', body: JSON.stringify(copy) });
-            await bar.refresh();
-          });
-          await bar.refresh();
-        }
+        await removeEntry(entry);
       }
     };
   });
@@ -239,21 +280,29 @@
         <div class="graph-hours">${Array.from({ length: hours }, (_, i) => `<div>${startHour + i}:00</div>`).join('')}</div>
         ${days.map(day => {
           const key = dayKey(day);
-          const dayBlocks = blocks.filter(b => dayKey(b.start) === key);
+          const dayBlocks = packDay(blocks.filter(b => dayKey(b.start) === key));
           return `<div class="graph-col${key === todayKey ? ' today' : ''}">
             <div class="cal-slots" data-day="${key}">
               ${Array.from({ length: hours * 2 }, (_, i) => `<button type="button" class="cal-slot half" data-hour="${startHour + i / 2}"></button>`).join('')}
             </div>
-            ${dayBlocks.map(b => {
+            ${dayBlocks.map(item => {
+              const b = item.b;
               const p = projectById(projects, b.projectId);
               const top = ((b.start.getHours() + b.start.getMinutes() / 60) - startHour) * rowH;
-              const height = Math.max(26, (Math.max(durationOf(b), 900) / 3600) * rowH);
+              const height = Math.max(44, (Math.max(durationOf(b), 1200) / 3600) * rowH);
               if (top < -20 || top > hours * rowH) return '';
-              return `<div class="cal-block${b.running ? ' live' : ''}" data-open="${b.id}" draggable="${b.running ? 'false' : 'true'}" data-id="${b.id}" style="top:${Math.max(0, top)}px;height:${height}px;background:${p ? p.color : '#c45db8'}">
+              const left = `calc(${(item.col / item.cols) * 100}% + 3px)`;
+              const width = `calc(${100 / item.cols}% - 6px)`;
+              return `<article class="cal-block${b.running ? ' live' : ''}" data-id="${b.id}" style="top:${Math.max(0, top)}px;height:${height}px;left:${left};width:${width};background:${p ? p.color : '#c45db8'}">
+                <div class="cal-tools">
+                  <button type="button" data-open="${b.id}" title="Edit">✎</button>
+                  <button type="button" data-delete="${b.id}" title="Delete">✕</button>
+                </div>
                 <b>${esc(b.description || p?.name || 'Time entry')}</b>
+                <small>${p ? esc(p.name) : 'No project'}</small>
                 <small>${timeRange(b.startedAt, durationOf(b), b.running)}</small>
                 ${b.running ? '' : `<i class="resize" data-resize="${b.id}"></i>`}
-              </div>`;
+              </article>`;
             }).join('')}
             ${key === todayKey && nowTop > 0 && nowTop < hours * rowH ? `<div class="now-line" style="top:${nowTop}px"><i></i></div>` : ''}
           </div>`;
@@ -314,10 +363,19 @@
 
   function bindCalendar() {
     let drag = null;
+    root.querySelectorAll('.cal-block').forEach(block => {
+      block.addEventListener('mousedown', e => e.stopPropagation());
+      block.addEventListener('click', e => {
+        if (e.target.closest('[data-delete], .resize')) return;
+        const entry = findEntry(block.dataset.id);
+        if (entry) openEditor(entry);
+      });
+    });
     root.querySelectorAll('.cal-slots').forEach(col => {
       col.addEventListener('mousedown', e => {
+        if (e.target.closest('.cal-block, .cal-tools, .resize')) return;
         const slot = e.target.closest('.cal-slot');
-        if (!slot) return;
+        if (!slot || e.button !== 0) return;
         drag = { day: col.dataset.day, start: Number(slot.dataset.hour), end: Number(slot.dataset.hour) + 0.5 };
       });
     });
@@ -326,44 +384,21 @@
       const slot = e.target.closest('.cal-slot');
       if (slot) drag.end = Number(slot.dataset.hour) + 0.5;
     });
-    root.addEventListener('mouseup', async () => {
+    root.addEventListener('mouseup', e => {
       if (!drag) return;
+      if (e.target.closest('.cal-block, .cal-tools')) { drag = null; return; }
       const a = Math.min(drag.start, drag.end);
       const b = Math.max(drag.start, drag.end);
       const start = new Date(`${drag.day}T${String(Math.floor(a)).padStart(2, '0')}:${a % 1 ? '30' : '00'}:00`);
       const duration = Math.max(1800, Math.round((b - a) * 3600));
-      drag = null;
       const projectId = bar.getProjectId() || lastProjectId(cache.projects);
-      const created = await api('/api/entries', {
-        method: 'POST',
-        body: JSON.stringify({
-          description: projectById(cache.projects, projectId)?.name || 'Tracked time',
-          projectId,
-          startedAt: start.toISOString(),
-          duration,
-          endedAt: new Date(start.getTime() + duration * 1000).toISOString()
-        })
-      });
-      if (projectId) rememberProject(projectId);
-      await bar.refresh();
-      openEditor(created);
-    });
-    root.querySelectorAll('.cal-block').forEach(block => {
-      block.addEventListener('dragstart', e => { e.dataTransfer.setData('text', block.dataset.id); });
-    });
-    root.querySelectorAll('.cal-slots').forEach(col => {
-      col.addEventListener('dragover', e => e.preventDefault());
-      col.addEventListener('drop', async e => {
-        e.preventDefault();
-        const id = e.dataTransfer.getData('text');
-        const slot = e.target.closest('.cal-slot');
-        if (!id || !slot) return;
-        const hour = Number(slot.dataset.hour);
-        const start = new Date(`${col.dataset.day}T${String(Math.floor(hour)).padStart(2, '0')}:${hour % 1 ? '30' : '00'}:00`);
-        const entry = findEntry(id);
-        if (!entry) return;
-        await saveEntry(id, { startedAt: start.toISOString(), duration: entry.duration });
-        await bar.refresh();
+      drag = null;
+      openEditor({
+        description: projectById(cache.projects, projectId)?.name || '',
+        projectId,
+        startedAt: start.toISOString(),
+        duration,
+        endedAt: new Date(start.getTime() + duration * 1000).toISOString()
       });
     });
     root.querySelectorAll('[data-resize]').forEach(handle => {
@@ -371,6 +406,7 @@
         e.stopPropagation();
         const id = handle.dataset.resize;
         const entry = findEntry(id);
+        if (!entry || entry.running) return;
         const startY = e.clientY;
         const startDur = entry.duration;
         const move = ev => {
@@ -453,10 +489,8 @@
     const daySel = e.target.closest('[data-select-day]');
     if (play) { const entry = findEntry(play.dataset.continue); if (entry && !entry.running) await startTimer(entry); await bar.refresh(); }
     if (del) {
-      const copy = { ...findEntry(del.dataset.delete) };
-      await api(`/api/entries/${del.dataset.delete}`, { method: 'DELETE' });
-      showToast('Time entry deleted', 'Undo', async () => { await api('/api/entries', { method: 'POST', body: JSON.stringify(copy) }); await bar.refresh(); });
-      await bar.refresh();
+      e.stopPropagation();
+      await removeEntry(findEntry(del.dataset.delete));
     }
     if (bill) { const entry = findEntry(bill.dataset.billable); if (entry) await saveEntry(entry.id, { billable: !entry.billable }); await load(); }
     if (fav) { const entry = findEntry(fav.dataset.fav); if (entry) toggleFav(entry); await load(); }
