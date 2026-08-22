@@ -297,7 +297,7 @@ function projectChip(project) {
 
 function getSettings() {
   try {
-    return Object.assign({ group: true, shortcuts: true, calStart: 7, calEnd: 20 }, JSON.parse(localStorage.getItem('trackz.settings') || '{}'));
+    return Object.assign({ group: true, shortcuts: true, calStart: 7, calEnd: 22 }, JSON.parse(localStorage.getItem('trackz.settings') || '{}'));
   } catch {
     return { group: true, shortcuts: true, calStart: 7, calEnd: 20 };
   }

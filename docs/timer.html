@@ -9,10 +9,13 @@
 <body class="app timer-page">
   <aside>
     <a class="brand" href="timer.html">trackz<span>.</span></a>
+    <p class="nav-label">Track</p>
+    <nav class="side tight">
+      <a href="dashboard.html">Overview</a>
+      <a class="active" href="timer.html">Timer</a>
+    </nav>
     <p class="nav-label">Analyze</p>
     <nav class="side tight">
-      <a class="active" href="timer.html">Timer</a>
-      <a href="timer.html?view=calendar">Calendar</a>
       <a href="dashboard.html">Reports</a>
     </nav>
     <p class="nav-label">Manage</p>
@@ -31,18 +34,18 @@
     <div class="workspace-body">
       <section class="workspace-main">
         <div class="view-bar">
-          <div class="view-tabs">
-            <button type="button" data-view="list" class="on">List</button>
-            <button type="button" data-view="calendar">Calendar</button>
-            <button type="button" data-view="timesheet">Timesheet</button>
-          </div>
           <div class="range-nav">
-            <button type="button" class="btn ghost" id="prevRange">←</button>
-            <strong id="rangeLabel">This week</strong>
-            <button type="button" class="btn ghost" id="nextRange">→</button>
-            <button type="button" class="btn ghost" id="todayRange">Today</button>
+            <button type="button" class="ghost-ico" id="prevRange" title="Previous week">‹</button>
+            <button type="button" class="ghost-ico" id="nextRange" title="Next week">›</button>
+            <button type="button" class="week-pill" id="todayRange"><span id="rangeLabel">This week</span></button>
+            <div class="week-total">Week total <strong id="weekTotal">0:00:00</strong></div>
+          </div>
+          <div class="view-tabs">
+            <button type="button" data-view="calendar" class="on">Calendar</button>
+            <button type="button" data-view="list">List</button>
+            <button type="button" data-view="timesheet">Timesheet</button>
             <button type="button" class="ghost-ico" id="settingsBtn" title="Timer settings">⚙</button>
-            <button type="button" class="ghost-ico" id="showInsights" title="Insights">▤</button>
+            <button type="button" class="ghost-ico" id="showInsights" title="Goals">▤</button>
           </div>
         </div>
         <div id="bulkBar" class="bulk-bar hidden">
@@ -56,7 +59,7 @@
       </section>
       <aside class="insights" id="insights">
         <div class="insight-head">
-          <h2>Insights</h2>
+          <h2>Goals</h2>
           <button type="button" class="ghost-ico" id="hideInsights">✕</button>
         </div>
         <a class="stat-card" href="dashboard.html">

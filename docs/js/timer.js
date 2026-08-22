@@ -7,7 +7,7 @@
   const editor = document.querySelector('#editor');
   const form = document.querySelector('#editorForm');
   const params = new URLSearchParams(location.search);
-  let view = params.get('view') || 'list';
+  let view = params.get('view') || 'calendar';
   let weekOffset = 0;
   let selected = new Set();
   let cache = { projects: [], entries: [], planned: [] };
@@ -25,6 +25,13 @@
   function weekDays() {
     const start = monday(weekOffset);
     return Array.from({ length: 7 }, (_, i) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
+  }
+  function weekNum(d) {
+    const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const day = t.getUTCDay() || 7;
+    t.setUTCDate(t.getUTCDate() + 4 - day);
+    const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+    return Math.ceil((((t - yearStart) / 86400000) + 1) / 7);
   }
   function favorites() {
     try { return JSON.parse(localStorage.getItem(favKey) || '[]'); } catch { return []; }
@@ -159,14 +166,10 @@
     cache = { projects, entries, planned };
     const days = weekDays();
     const cfg = settings();
-    document.querySelector('#rangeLabel').textContent = weekOffset === 0
-      ? 'This week'
-      : `${days[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${days[6].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
-    document.querySelectorAll('.view-tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === view));
-    document.querySelectorAll('.side a').forEach(a => {
-      if (a.getAttribute('href') === 'timer.html?view=calendar') a.classList.toggle('active', view === 'calendar');
-      if (a.getAttribute('href') === 'timer.html') a.classList.toggle('active', view === 'list' || view === 'timesheet');
-    });
+    document.querySelector('#rangeLabel').textContent = `${weekOffset === 0 ? 'This week' : 'Week'} · W${weekNum(days[0])}`;
+    const weekTotal = document.querySelector('#weekTotal');
+    document.querySelectorAll('.view-tabs [data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === view));
+    document.querySelectorAll('.side a[href="timer.html"]').forEach(a => a.classList.toggle('active', true));
     document.querySelector('#bulkBar').classList.toggle('hidden', selected.size === 0);
     document.querySelector('#bulkCount').textContent = `${selected.size} selected`;
 
@@ -186,6 +189,7 @@
     document.querySelector('#insTodayBill').textContent = `${fmt(bill(todayEntries))} billable`;
     document.querySelector('#insWeek').textContent = fmt(sum(weekEntries));
     document.querySelector('#insWeekBill').textContent = `${fmt(bill(weekEntries))} billable`;
+    if (weekTotal) weekTotal.textContent = fmt(sum(weekEntries));
     const goal = Number(localStorage.getItem(goalKey) || 40);
     document.querySelector('#weekGoal').value = goal;
     const weekH = sum(weekEntries) / 3600;
@@ -200,29 +204,40 @@
     const hours = Math.max(8, cfg.calEnd - cfg.calStart);
 
     if (view === 'calendar') {
-      const blocks = entries.filter(e => !e.running).map(e => ({ ...e, start: new Date(e.startedAt), kind: 'tracked' }));
-      root.innerHTML = `<div class="cal-wrap"><div class="cal-daytotals">${days.map(d => `<div>${fmt(sum(weekEntries.filter(e => dayKey(e.startedAt) === dayKey(d))))}</div>`).join('')}</div>
-        <div class="cal">${`<div class="cal-hours">${Array.from({ length: hours }, (_, i) => `<div>${String(startHour + i).padStart(2, '0')}:00</div>`).join('')}</div>` + days.map(day => {
-        const key = dayKey(day);
-        const dayBlocks = blocks.filter(b => dayKey(b.start) === key);
-        return `<div class="cal-day${key === todayKey ? ' today' : ''}">
-          <header><small>${day.toLocaleDateString(undefined, { weekday: 'short' })}</small><b>${day.getDate()}</b></header>
-          <div class="cal-slots" data-day="${key}">
-            ${Array.from({ length: hours * 2 }, (_, i) => `<button type="button" class="cal-slot half" data-hour="${startHour + i / 2}"></button>`).join('')}
+      const rowH = 48;
+      const now = new Date();
+      const nowTop = ((now.getHours() + now.getMinutes() / 60) - startHour) * rowH;
+      const blocks = entries.filter(e => !e.running).map(e => ({ ...e, start: new Date(e.startedAt) }));
+      root.innerHTML = `<div class="graph" style="--hours:${hours};--row:${rowH}px">
+        <div class="graph-corner"></div>
+        ${days.map(day => {
+          const key = dayKey(day);
+          const total = sum(weekEntries.filter(e => dayKey(e.startedAt) === key));
+          return `<div class="graph-dayhead${key === todayKey ? ' today' : ''}"><b>${day.getDate()} ${day.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase()}</b><span>${fmt(total)}</span></div>`;
+        }).join('')}
+        <div class="graph-hours">${Array.from({ length: hours }, (_, i) => `<div>${startHour + i}:00</div>`).join('')}</div>
+        ${days.map(day => {
+          const key = dayKey(day);
+          const dayBlocks = blocks.filter(b => dayKey(b.start) === key);
+          return `<div class="graph-col${key === todayKey ? ' today' : ''}">
+            <div class="cal-slots" data-day="${key}">
+              ${Array.from({ length: hours * 2 }, (_, i) => `<button type="button" class="cal-slot half" data-hour="${startHour + i / 2}"></button>`).join('')}
+            </div>
             ${dayBlocks.map(b => {
               const p = projectById(projects, b.projectId);
-              const top = ((b.start.getHours() + b.start.getMinutes() / 60) - startHour) * 44;
-              const height = Math.max(28, ((b.duration || 1800) / 3600) * 44);
-              if (top < -20 || top > hours * 44) return '';
-              return `<div class="cal-block ${b.kind}" data-open="${b.id}" draggable="true" data-id="${b.id}" style="top:${Math.max(0, top)}px;height:${height}px;background:${p ? p.color : '#6d5dfc'}">
-                <b>${esc(b.description)}</b>
+              const top = ((b.start.getHours() + b.start.getMinutes() / 60) - startHour) * rowH;
+              const height = Math.max(22, ((b.duration || 1800) / 3600) * rowH);
+              if (top < -20 || top > hours * rowH) return '';
+              return `<div class="cal-block" data-open="${b.id}" draggable="true" data-id="${b.id}" style="top:${Math.max(0, top)}px;height:${height}px;background:${p ? p.color : '#e57cd8'}">
+                <b>${esc(b.description || 'Time entry')}</b>
                 <small>${timeRange(b.startedAt, b.duration, false)}</small>
                 <i class="resize" data-resize="${b.id}"></i>
               </div>`;
             }).join('')}
-          </div>
-        </div>`;
-      }).join('')}</div></div>`;
+            ${key === todayKey && nowTop > 0 && nowTop < hours * rowH ? `<div class="now-line" style="top:${nowTop}px"><i></i></div>` : ''}
+          </div>`;
+        }).join('')}
+      </div>`;
       bindCalendar();
       return;
     }
