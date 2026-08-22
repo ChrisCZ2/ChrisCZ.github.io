@@ -112,12 +112,14 @@ function staticApi(url, opts = {}) {
   if (path === '/api/projects' && method === 'GET') return mine(d.projects);
   if (path === '/api/projects' && method === 'POST') {
     if (!body.name) throw new Error('Project name required');
+    const parent = body.parentId ? d.projects.find(x => x.id === body.parentId && x.userId === user.id) : null;
     const p = {
       id: crypto.randomUUID(),
       userId: user.id,
       name: body.name,
-      client: body.client || '',
-      color: body.color || PROJECT_COLORS[d.projects.length % PROJECT_COLORS.length],
+      parentId: parent ? parent.id : '',
+      client: body.client || parent?.client || '',
+      color: body.color || parent?.color || PROJECT_COLORS[d.projects.length % PROJECT_COLORS.length],
       description: body.description || '',
       billable: !!body.billable,
       createdAt: new Date().toISOString(),
@@ -128,7 +130,7 @@ function staticApi(url, opts = {}) {
     return p;
   }
   if (parts[0] === 'api' && parts[1] === 'projects' && parts[2] && method === 'DELETE') {
-    d.projects = d.projects.filter(x => !(x.id === parts[2] && x.userId === user.id));
+    d.projects = d.projects.filter(x => !(x.userId === user.id && (x.id === parts[2] || x.parentId === parts[2])));
     saveDb(d);
     return { ok: true };
   }
@@ -341,9 +343,57 @@ function projectById(projects, id) {
   return projects.find(p => p.id === id) || null;
 }
 
-function projectChip(project) {
+function mainProjects(projects) {
+  return (projects || []).filter(p => !p.parentId && !p.archived);
+}
+
+function childProjects(projects, parentId) {
+  return (projects || []).filter(p => p.parentId === parentId && !p.archived);
+}
+
+function projectTreeIds(projects, id) {
+  const ids = new Set([id]);
+  childProjects(projects, id).forEach(c => ids.add(c.id));
+  return ids;
+}
+
+function projectColor(projects, id) {
+  const p = projectById(projects, id);
+  if (!p) return '#c45db8';
+  if (p.color) return p.color;
+  return projectById(projects, p.parentId)?.color || '#c45db8';
+}
+
+function projectLabel(projects, id) {
+  const p = projectById(projects, id);
+  if (!p) return '';
+  const parent = p.parentId ? projectById(projects, p.parentId) : null;
+  return parent ? `${parent.name} / ${p.name}` : p.name;
+}
+
+function hexTint(hex, mix = 0.88) {
+  const n = String(hex || '#c45db8').replace('#', '');
+  if (n.length !== 6) return '#f7eef6';
+  const r = parseInt(n.slice(0, 2), 16);
+  const g = parseInt(n.slice(2, 4), 16);
+  const b = parseInt(n.slice(4, 6), 16);
+  return `rgb(${Math.round(r + (255 - r) * mix)}, ${Math.round(g + (255 - g) * mix)}, ${Math.round(b + (255 - b) * mix)})`;
+}
+
+function projectOptions(projects, selected) {
+  return '<option value="">No project</option>' + mainProjects(projects).map(p => {
+    const kids = childProjects(projects, p.id);
+    return `<optgroup label="${esc(p.name)}">
+      <option value="${p.id}" ${p.id === selected ? 'selected' : ''}>${esc(p.name)}</option>
+      ${kids.map(c => `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${esc(p.name)} / ${esc(c.name)}</option>`).join('')}
+    </optgroup>`;
+  }).join('');
+}
+
+function projectChip(project, projects) {
   if (!project) return '<span class="chip muted">No project</span>';
-  return `<span class="chip"><i class="dot" style="background:${esc(project.color)}"></i>${esc(project.name)}</span>`;
+  const label = projects ? projectLabel(projects, project.id) : project.name;
+  return `<span class="chip"><i class="dot" style="background:${esc(projectColor(projects || [project], project.id))}"></i>${esc(label)}</span>`;
 }
 
 function getSettings() {
@@ -497,13 +547,21 @@ async function mountTrackbar() {
 
   function renderMenu() {
     const q = (menu.querySelector('#projectSearch')?.value || '').toLowerCase();
-    const list = projects.filter(p => !q || p.name.toLowerCase().includes(q) || (p.client || '').toLowerCase().includes(q));
+    const mains = mainProjects(projects).filter(p => !q || p.name.toLowerCase().includes(q) || childProjects(projects, p.id).some(c => c.name.toLowerCase().includes(q)));
     menu.innerHTML = `
       <input id="projectSearch" placeholder="Search project" value="${esc(q)}">
       <button type="button" class="menu-item" data-id="">No project</button>
-      ${list.map(p => `<button type="button" class="menu-item" data-id="${p.id}"><i class="dot" style="background:${esc(p.color)}"></i>${esc(p.name)}${p.client ? `<small>${esc(p.client)}</small>` : ''}</button>`).join('')}
+      ${mains.map(p => {
+        const kids = childProjects(projects, p.id).filter(c => !q || p.name.toLowerCase().includes(q) || c.name.toLowerCase().includes(q));
+        return `<button type="button" class="menu-item" data-id="${p.id}"><i class="dot" style="background:${esc(p.color)}"></i>${esc(p.name)}</button>
+          ${kids.map(c => `<button type="button" class="menu-item sub" data-id="${c.id}"><i class="dot" style="background:${esc(projectColor(projects, c.id))}"></i>${esc(c.name)}</button>`).join('')}`;
+      }).join('')}
       <form class="create-project" id="quickProject">
-        <input name="name" placeholder="Create a project" required>
+        <input name="name" placeholder="Create a project or sub-project" required>
+        <select name="parentId">
+          <option value="">Main project</option>
+          ${mainProjects(projects).map(p => `<option value="${p.id}">Sub-project of ${esc(p.name)}</option>`).join('')}
+        </select>
         <input name="client" placeholder="Client (optional)">
         <label class="check"><input type="checkbox" name="billable"> Billable by default</label>
         <div class="swatches">${PROJECT_COLORS.map((c, i) => `<button type="button" class="swatch-btn${i ? '' : ' on'}" data-color="${c}" style="background:${c}"></button>`).join('')}</div>
@@ -519,7 +577,7 @@ async function mountTrackbar() {
   function syncProjectBtn() {
     const p = projectById(projects, projectId);
     projectBtn.innerHTML = p
-      ? `<i class="dot" style="background:${esc(p.color)}"></i><span>${esc(p.name)}</span>`
+      ? `<i class="dot" style="background:${esc(projectColor(projects, p.id))}"></i><span>${esc(projectLabel(projects, p.id))}</span>`
       : '<span>+ Project</span>';
     tagBtn.classList.toggle('on', tags.length > 0);
     tagBtn.textContent = tags.length ? `#${tags.length}` : '#';
@@ -614,7 +672,7 @@ async function mountTrackbar() {
     const name = e.target.name.value.trim();
     const color = menu.querySelector('.swatch-btn.on')?.dataset.color || PROJECT_COLORS[0];
     if (!name) return;
-    const p = await api('/api/projects', { method: 'POST', body: JSON.stringify({ name, color, client: e.target.client.value, billable: e.target.billable.checked }) });
+    const p = await api('/api/projects', { method: 'POST', body: JSON.stringify({ name, color, parentId: e.target.parentId.value, client: e.target.client.value, billable: e.target.billable.checked }) });
     projectId = p.id;
     rememberProject(projectId);
     if (p.billable) billable = true;

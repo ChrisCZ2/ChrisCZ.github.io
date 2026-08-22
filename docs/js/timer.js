@@ -102,7 +102,7 @@
     form.entryId.value = entry.id || '';
     form.description.value = entry.description || '';
     const selectedProject = entry.projectId || bar.getProjectId() || lastProjectId(cache.projects);
-    form.projectId.innerHTML = '<option value="">No project</option>' + cache.projects.map(p => `<option value="${p.id}" ${p.id === selectedProject ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+    form.projectId.innerHTML = projectOptions(cache.projects, selectedProject);
     form.tags.value = (entry.tags || []).join(', ');
     form.billable.checked = !!entry.billable;
     const start = new Date(entry.startedAt || Date.now());
@@ -190,7 +190,7 @@
     return `<div class="te ${e.running ? 'live' : ''}" data-id="${e.id}">
       <input type="checkbox" class="pick" data-pick="${e.id}" ${selected.has(e.id) ? 'checked' : ''}>
       <input class="te-desc" value="${esc(e.description)}" data-edit="description">
-      <button type="button" class="chip-btn" data-edit-project="${e.id}">${projectChip(p)}</button>
+      <button type="button" class="chip-btn" data-edit-project="${e.id}">${projectChip(p, cache.projects)}</button>
       <button type="button" class="te-tags" data-edit-tags="${e.id}">${tags || '<span class="muted">#</span>'}</button>
       <button type="button" class="ghost-ico ${e.billable ? 'on' : ''}" data-billable="${e.id}">$</button>
       <button type="button" class="te-range" data-open="${e.id}">${timeRange(e.startedAt, e.duration, e.running)}</button>
@@ -246,18 +246,30 @@
     document.querySelector('#goalCopy').textContent = `${weekH.toFixed(1)} of ${goal}h`;
     document.querySelector('#favorites').innerHTML = favorites().map((f, i) => {
       const p = projectById(projects, f.projectId);
-      return `<button type="button" class="fav" data-fav-start="${i}"><small>${i + 1}</small>${projectChip(p)}<span>${esc(f.description || 'Favorite')}</span></button>`;
+      return `<button type="button" class="fav" data-fav-start="${i}"><small>${i + 1}</small>${projectChip(p, projects)}<span>${esc(f.description || 'Favorite')}</span></button>`;
     }).join('') || '<p class="empty-copy">Pin an entry as a favorite, then press 1–9.</p>';
     const strip = document.querySelector('#projectStrip');
     if (strip) {
-      strip.innerHTML = projects.length
-        ? projects.map(p => {
-          const total = sum(weekEntries.filter(e => e.projectId === p.id));
-          return `<button type="button" class="proj-chip${p.id === (bar.getProjectId() || lastProjectId(projects)) ? ' on' : ''}" data-start-project="${p.id}">
-            <i class="dot" style="background:${esc(p.color)}"></i>
-            <b>${esc(p.name)}</b>
-            <span>${hm(total)}</span>
-          </button>`;
+      const current = bar.getProjectId() || lastProjectId(projects);
+      strip.innerHTML = mainProjects(projects).length
+        ? mainProjects(projects).map(p => {
+          const kids = childProjects(projects, p.id);
+          const tree = projectTreeIds(projects, p.id);
+          const total = sum(weekEntries.filter(e => tree.has(e.projectId)));
+          return `<div class="proj-family">
+            <button type="button" class="proj-chip${current === p.id || kids.some(c => c.id === current) ? ' on' : ''}" data-start-project="${p.id}">
+              <i class="dot" style="background:${esc(p.color)}"></i>
+              <b>${esc(p.name)}</b>
+              <span>${hm(total)}</span>
+            </button>
+            <div class="proj-kids">
+              ${kids.map(c => `<button type="button" class="proj-chip sub${c.id === current ? ' on' : ''}" data-start-project="${c.id}">
+                <b>${esc(c.name)}</b>
+                <span>${hm(sum(weekEntries.filter(e => e.projectId === c.id)))}</span>
+              </button>`).join('')}
+              <form class="sub-add" data-parent="${p.id}"><input name="name" placeholder="+ Sub-project" required></form>
+            </div>
+          </div>`;
         }).join('') + '<a class="proj-chip add" href="projects.html">+ New project</a>'
         : '<a class="proj-chip add" href="projects.html">Create a project to start tracking</a>';
     }
@@ -287,19 +299,20 @@
             </div>
             ${dayBlocks.map(item => {
               const b = item.b;
-              const p = projectById(projects, b.projectId);
-              const top = ((b.start.getHours() + b.start.getMinutes() / 60) - startHour) * rowH;
-              const height = Math.max(44, (Math.max(durationOf(b), 1200) / 3600) * rowH);
+              const color = projectColor(projects, b.projectId);
+              const top = Math.round(((b.start.getHours() + b.start.getMinutes() / 60) - startHour) * rowH);
+              const height = Math.max(52, Math.round((Math.max(durationOf(b), 1500) / 3600) * rowH));
               if (top < -20 || top > hours * rowH) return '';
-              const left = `calc(${(item.col / item.cols) * 100}% + 3px)`;
-              const width = `calc(${100 / item.cols}% - 6px)`;
-              return `<article class="cal-block${b.running ? ' live' : ''}" data-id="${b.id}" style="top:${Math.max(0, top)}px;height:${height}px;left:${left};width:${width};background:${p ? p.color : '#c45db8'}">
+              const gap = 10;
+              const left = `calc(${(item.col / item.cols) * 100}% + ${gap / 2}px)`;
+              const width = `calc(${100 / item.cols}% - ${gap}px)`;
+              return `<article class="cal-block${b.running ? ' live' : ''}" data-id="${b.id}" style="top:${Math.max(0, top)}px;height:${height}px;left:${left};width:${width};--proj:${color};background:${hexTint(color)}">
                 <div class="cal-tools">
                   <button type="button" data-open="${b.id}" title="Edit">✎</button>
                   <button type="button" data-delete="${b.id}" title="Delete">✕</button>
                 </div>
-                <b>${esc(b.description || p?.name || 'Time entry')}</b>
-                <small>${p ? esc(p.name) : 'No project'}</small>
+                <b>${esc(b.description || projectLabel(projects, b.projectId) || 'Time entry')}</b>
+                <small>${esc(projectLabel(projects, b.projectId) || 'No project')}</small>
                 <small>${timeRange(b.startedAt, durationOf(b), b.running)}</small>
                 ${b.running ? '' : `<i class="resize" data-resize="${b.id}"></i>`}
               </article>`;
@@ -313,7 +326,10 @@
     }
 
     if (view === 'timesheet') {
-      const rows = [{ id: '', name: 'No project', color: '#bbb' }, ...projects];
+      const rows = [{ id: '', name: 'No project', color: '#bbb' }].concat(mainProjects(projects).flatMap(p => [
+        p,
+        ...childProjects(projects, p.id).map(c => ({ ...c, name: `${p.name} / ${c.name}` }))
+      ]));
       root.innerHTML = `<div class="sheet"><table>
         <thead><tr><th>Project</th>${days.map(d => `<th>${d.toLocaleDateString(undefined, { weekday: 'short' })}<br>${d.getDate()}</th>`).join('')}<th>Total</th></tr></thead>
         <tbody>${rows.map(p => {
@@ -350,7 +366,7 @@
           return `<div class="te group" data-expand>
             <span class="count">${g.items.length}</span>
             <b>${esc(first.description)}</b>
-            ${projectChip(p)}
+            ${projectChip(p, cache.projects)}
             <time>${fmt(seconds)}</time>
             <button type="button" class="icon-btn" data-continue="${first.id}" title="Continue">▶</button>
             <button type="button" class="icon-btn" data-more="${first.id}">⋯</button>
@@ -567,7 +583,19 @@
     if (!btn) return;
     const p = projectById(cache.projects, btn.dataset.startProject);
     rememberProject(btn.dataset.startProject);
-    await startTimer({ description: p?.name || 'Tracked time', projectId: btn.dataset.startProject });
+    await startTimer({ description: p ? projectLabel(cache.projects, p.id) : 'Tracked time', projectId: btn.dataset.startProject });
+    await bar.refresh();
+  });
+  document.querySelector('#projectStrip')?.addEventListener('submit', async e => {
+    const form = e.target.closest('.sub-add');
+    if (!form) return;
+    e.preventDefault();
+    const name = form.name.value.trim();
+    if (!name) return;
+    const parent = projectById(cache.projects, form.dataset.parent);
+    const created = await api('/api/projects', { method: 'POST', body: JSON.stringify({ name, parentId: form.dataset.parent, color: parent?.color }) });
+    rememberProject(created.id);
+    form.reset();
     await bar.refresh();
   });
 
