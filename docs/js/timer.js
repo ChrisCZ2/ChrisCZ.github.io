@@ -64,7 +64,83 @@
   function durationOf(e) {
     if (!e) return 0;
     if (e.running) return Math.max(0, Math.floor((Date.now() - new Date(e.startedAt).getTime()) / 1000));
+    if (e.startedAt && e.endedAt) return Math.max(0, Math.floor((new Date(e.endedAt) - new Date(e.startedAt)) / 1000));
     return e.duration || 0;
+  }
+  function projectSegments(list, projects) {
+    const map = new Map();
+    list.forEach(e => {
+      const p = projectById(projects, e.projectId);
+      const rootP = p?.parentId ? projectById(projects, p.parentId) || p : p;
+      const id = rootP?.id || p?.id || 'none';
+      const cur = map.get(id) || { id, name: rootP?.name || p?.name || 'No project', color: rootP?.color || p?.color || '#b3aab8', seconds: 0 };
+      cur.seconds += durationOf(e);
+      map.set(id, cur);
+    });
+    return [...map.values()].filter(s => s.seconds > 0).sort((a, b) => b.seconds - a.seconds);
+  }
+  function renderSegBar(el, segs, total) {
+    if (!el) return;
+    if (!total) { el.innerHTML = '<i class="empty"></i>'; return; }
+    el.innerHTML = segs.map(s => `<i style="flex:${s.seconds};background:${esc(s.color)}" title="${esc(s.name)} ${fmt(s.seconds)}"></i>`).join('');
+  }
+  function weekWindow() {
+    const days = weekDays();
+    const weekStart = days[0];
+    const weekEnd = new Date(days[6]);
+    weekEnd.setHours(23, 59, 59, 999);
+    return { days, weekStart, weekEnd };
+  }
+  function entriesInWeek(entries = cache.entries) {
+    const { weekStart, weekEnd } = weekWindow();
+    return entries.filter(e => {
+      const t = new Date(e.startedAt || e.startAt);
+      return t >= weekStart && t <= weekEnd;
+    });
+  }
+  function paintWeekStamp() {
+    const weekEntries = entriesInWeek();
+    const weekSecs = weekEntries.reduce((a, e) => a + durationOf(e), 0);
+    const weekTotal = document.querySelector('#weekTotal');
+    if (weekTotal) weekTotal.textContent = fmt(weekSecs);
+    const segs = projectSegments(weekEntries, cache.projects);
+    renderSegBar(document.querySelector('#weekSeg'), segs, weekSecs);
+    const legend = document.querySelector('#weekSegLegend');
+    if (legend) {
+      legend.hidden = segs.length < 2;
+      legend.innerHTML = segs.length > 1
+        ? segs.map(s => `<span><i class="dot" style="background:${esc(s.color)}"></i>${esc(s.name)} <b>${fmt(s.seconds)}</b></span>`).join('')
+        : '';
+    }
+    const insWeek = document.querySelector('#insWeek');
+    if (insWeek) insWeek.textContent = fmt(weekSecs);
+    document.querySelectorAll('.graph-dayhead').forEach((head, i) => {
+      const day = weekDays()[i];
+      if (!day) return;
+      const key = dayKey(day);
+      const dayList = weekEntries.filter(e => dayKey(e.startedAt) === key);
+      const total = dayList.reduce((a, e) => a + durationOf(e), 0);
+      const stamp = head.querySelector('span');
+      if (stamp) stamp.textContent = fmt(total);
+      const mini = head.querySelector('.seg-bar.mini');
+      if (mini) renderSegBar(mini, projectSegments(dayList, cache.projects), total);
+    });
+  }
+  function paintLiveStamps() {
+    if (!cache.entries.some(e => e.running)) return;
+    paintWeekStamp();
+    cache.entries.filter(e => e.running).forEach(e => {
+      const seconds = durationOf(e);
+      document.querySelectorAll(`.cal-block[data-id="${e.id}"] .stamp`).forEach(el => {
+        el.textContent = timeRange(e.startedAt, seconds, true);
+      });
+      document.querySelectorAll(`.te[data-id="${e.id}"] .te-range`).forEach(el => {
+        el.textContent = fullStamp(e.startedAt, seconds, true);
+      });
+      document.querySelectorAll(`.te[data-id="${e.id}"] .te-dur`).forEach(el => {
+        el.value = fmt(seconds);
+      });
+    });
   }
   function packDay(dayBlocks) {
     const items = dayBlocks.map(b => {
@@ -318,7 +394,7 @@
 
   function entryRow(e) {
     const p = projectById(cache.projects, e.projectId);
-    const seconds = e.running ? Math.floor((Date.now() - new Date(e.startedAt).getTime()) / 1000) : e.duration;
+    const seconds = durationOf(e);
     const tags = (e.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('');
     return `<div class="te ${e.running ? 'live' : ''}" data-id="${e.id}">
       <input type="checkbox" class="pick" data-pick="${e.id}" ${selected.has(e.id) ? 'checked' : ''}>
@@ -326,7 +402,7 @@
       <button type="button" class="chip-btn" data-edit-project="${e.id}">${projectChip(p, cache.projects)}</button>
       <button type="button" class="te-tags" data-edit-tags="${e.id}">${tags || '<span class="muted">#</span>'}</button>
       <button type="button" class="ghost-ico ${e.billable ? 'on' : ''}" data-billable="${e.id}">$</button>
-      <button type="button" class="te-range" data-open="${e.id}">${timeRange(e.startedAt, e.duration, e.running)}</button>
+      <button type="button" class="te-range" data-open="${e.id}">${fullStamp(e.startedAt, seconds, e.running)}</button>
       <input class="te-dur" value="${fmt(seconds)}" data-edit-dur="${e.id}">
       <button type="button" class="icon-btn" data-continue="${e.id}" title="Continue">▶</button>
       <div class="more">
@@ -348,16 +424,15 @@
     cache = { projects, entries, planned };
     const days = weekDays();
     const cfg = settings();
-    document.querySelector('#rangeLabel').textContent = `${weekOffset === 0 ? 'This week' : 'Week'} · W${weekNum(days[0])}`;
-    const weekTotal = document.querySelector('#weekTotal');
+    document.querySelector('#rangeLabel').textContent = weekOffset === 0 ? 'This week' : `Week ${weekNum(days[0])}`;
+    const datesEl = document.querySelector('#rangeDates');
+    if (datesEl) datesEl.textContent = weekStamp(days[0], days[6]);
     document.querySelectorAll('.view-tabs [data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === view));
     document.querySelectorAll('.side a[href="timer.html"]').forEach(a => a.classList.toggle('active', true));
     document.querySelector('#bulkBar').hidden = selected.size === 0;
     document.querySelector('#bulkCount').textContent = `${selected.size} selected`;
 
-    const weekStart = days[0];
-    const weekEnd = new Date(days[6]);
-    weekEnd.setHours(23, 59, 59, 999);
+    const { weekStart, weekEnd } = weekWindow();
     const inWeek = e => {
       const t = new Date(e.startedAt || e.startAt);
       return t >= weekStart && t <= weekEnd;
@@ -369,9 +444,8 @@
     const bill = list => sum(list.filter(e => e.billable));
     document.querySelector('#insToday').textContent = fmt(sum(todayEntries));
     document.querySelector('#insTodayBill').textContent = `${fmt(bill(todayEntries))} billable`;
-    document.querySelector('#insWeek').textContent = fmt(sum(weekEntries));
     document.querySelector('#insWeekBill').textContent = `${fmt(bill(weekEntries))} billable`;
-    if (weekTotal) weekTotal.textContent = fmt(sum(weekEntries));
+    paintWeekStamp();
     const goal = Number(localStorage.getItem(goalKey) || 40);
     document.querySelector('#weekGoal').value = goal;
     const weekH = sum(weekEntries) / 3600;
@@ -420,7 +494,13 @@
         ${days.map(day => {
           const key = dayKey(day);
           const total = sum(weekEntries.filter(e => dayKey(e.startedAt) === key));
-          return `<div class="graph-dayhead${key === todayKey ? ' today' : ''}"><b>${day.getDate()} ${day.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase()}</b><span>${fmt(total)}</span></div>`;
+          const daySegs = projectSegments(weekEntries.filter(e => dayKey(e.startedAt) === key), projects);
+          return `<div class="graph-dayhead${key === todayKey ? ' today' : ''}">
+            <b>${day.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase()}</b>
+            <em>${monthDayYear(day)}</em>
+            <span>${fmt(total)}</span>
+            ${daySegs.length ? `<div class="seg-bar mini">${daySegs.map(s => `<i style="flex:${s.seconds};background:${esc(s.color)}" title="${esc(s.name)} ${fmt(s.seconds)}"></i>`).join('')}</div>` : ''}
+          </div>`;
         }).join('')}
         <div class="graph-hours">${Array.from({ length: hours }, (_, i) => `<div>${startHour + i}:00</div>`).join('')}</div>
         ${days.map(day => {
@@ -446,7 +526,7 @@
                 </div>
                 <b>${esc(b.description || projectLabel(projects, b.projectId) || 'Time entry')}</b>
                 <small>${esc(projectLabel(projects, b.projectId) || 'No project')}</small>
-                <small>${timeRange(b.startedAt, durationOf(b), b.running)}</small>
+                <small class="stamp" title="${esc(fullStamp(b.startedAt, durationOf(b), b.running))}">${timeRange(b.startedAt, durationOf(b), b.running)}</small>
                 <i class="resize resize-top" data-edge="start"></i>
                 <i class="resize" data-edge="end"></i>
               </article>`;
@@ -465,7 +545,7 @@
         ...childProjects(projects, p.id).map(c => ({ ...c, name: `${p.name} / ${c.name}` }))
       ]));
       root.innerHTML = `<div class="sheet"><table>
-        <thead><tr><th>Project</th>${days.map(d => `<th>${d.toLocaleDateString(undefined, { weekday: 'short' })}<br>${d.getDate()}</th>`).join('')}<th>Total</th></tr></thead>
+        <thead><tr><th>Project</th>${days.map(d => `<th>${d.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase()}<br><span class="sheet-date">${monthDayYear(d)}</span></th>`).join('')}<th>Total</th></tr></thead>
         <tbody>${rows.map(p => {
           const cells = days.map(d => weekEntries.filter(e => dayKey(e.startedAt) === dayKey(d) && (e.projectId || '') === (p.id || '')));
           const total = cells.reduce((a, list) => a + sum(list), 0);
@@ -485,16 +565,20 @@
     const keys = Object.keys(groups).sort().reverse();
     root.innerHTML = keys.length ? keys.map(key => {
       const list = groups[key];
-      const total = list.reduce((a, e) => a + (e.running ? Math.floor((Date.now() - new Date(e.startedAt).getTime()) / 1000) : e.duration), 0);
+      const total = list.reduce((a, e) => a + durationOf(e), 0);
+      const daySegs = projectSegments(list, projects);
       return `<section class="day-group toggl-day">
         <div class="day-head">
-          <label class="check"><input type="checkbox" data-select-day="${key}"> <b>${dayLabel(key)}</b></label>
-          <small>${dayDate(key)}</small>
+          <div>
+            <label class="check"><input type="checkbox" data-select-day="${key}"> <b>${dayLabel(key)}</b></label>
+            <small>${monthDayYear(key)}</small>
+          </div>
           <strong>${fmt(total)}</strong>
         </div>
+        ${daySegs.length ? `<div class="seg-bar mini day-seg">${daySegs.map(s => `<i style="flex:${s.seconds};background:${esc(s.color)}" title="${esc(s.name)} ${fmt(s.seconds)}"></i>`).join('')}</div>` : ''}
         ${groupDay(list).map(g => {
           if (g.items.length === 1) return entryRow(g.items[0]);
-          const seconds = g.items.reduce((a, e) => a + e.duration, 0);
+          const seconds = g.items.reduce((a, e) => a + durationOf(e), 0);
           const first = g.items[0];
           const p = projectById(projects, first.projectId);
           return `<div class="te group" data-expand>
@@ -829,6 +913,7 @@
   });
 
   document.addEventListener('trackz:refresh', load);
+  setInterval(paintLiveStamps, 1000);
   await load();
 })().catch(err => {
   const root = document.querySelector('#viewRoot');

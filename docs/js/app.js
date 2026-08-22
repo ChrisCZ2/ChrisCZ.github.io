@@ -308,8 +308,36 @@ function dayDate(key) {
 function timeRange(start, seconds, running) {
   const a = new Date(start);
   const b = running ? new Date() : (seconds ? new Date(a.getTime() + seconds * 1000) : a);
-  const f = d => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const f = d => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
   return `${f(a)} – ${f(b)}`;
+}
+
+function asLocalDate(date) {
+  if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const [y, m, d] = date.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  return new Date(date);
+}
+
+function dateStamp(date) {
+  return asLocalDate(date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function monthDayYear(date) {
+  return asLocalDate(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function weekStamp(start, end) {
+  const a = asLocalDate(start), b = asLocalDate(end);
+  const sameYear = a.getFullYear() === b.getFullYear();
+  const left = a.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: sameYear ? undefined : 'numeric' });
+  const right = b.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  return `${left} – ${right}`;
+}
+
+function fullStamp(start, seconds, running) {
+  return `${monthDayYear(start)} · ${timeRange(start, seconds, running)}`;
 }
 
 function parseClock(s) {

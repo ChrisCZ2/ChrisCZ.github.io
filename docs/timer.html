@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timer — Trackz</title>
-  <link rel="stylesheet" href="css/trackz.css?v=7">
+  <link rel="stylesheet" href="css/trackz.css?v=8">
   <style>[hidden],.hidden{display:none!important}</style>
 </head>
 <body class="app timer-page">
@@ -38,8 +38,10 @@
           <div class="range-nav">
             <button type="button" class="ghost-ico" id="prevRange" title="Previous week">‹</button>
             <button type="button" class="ghost-ico" id="nextRange" title="Next week">›</button>
-            <button type="button" class="week-pill" id="todayRange"><span id="rangeLabel">This week</span></button>
-            <div class="week-total">Week total <strong id="weekTotal">0:00:00</strong></div>
+            <button type="button" class="week-pill" id="todayRange">
+              <span id="rangeLabel">This week</span>
+              <small id="rangeDates">Aug 17 – Aug 23, 2026</small>
+            </button>
           </div>
           <div class="view-tabs">
             <button type="button" data-view="calendar" class="on">Calendar</button>
@@ -48,6 +50,14 @@
             <button type="button" class="ghost-ico" id="settingsBtn" title="Timer settings">⚙</button>
             <button type="button" class="ghost-ico" id="showInsights" title="Goals">▤</button>
           </div>
+        </div>
+        <div class="week-stamp">
+          <div class="week-stamp-head">
+            <span>Total tracked</span>
+            <strong id="weekTotal">00:00:00</strong>
+          </div>
+          <div id="weekSeg" class="seg-bar"></div>
+          <div id="weekSegLegend" class="seg-legend"></div>
         </div>
         <div id="projectStrip" class="project-strip"></div>
         <div id="bulkBar" class="bulk-bar" hidden>
@@ -146,7 +156,7 @@
       </ul>
     </div>
   </div>
-  <script src="js/app.js?v=7"></script>
-  <script src="js/timer.js?v=7"></script>
+  <script src="js/app.js?v=8"></script>
+  <script src="js/timer.js?v=8"></script>
 </body>
 </html>
